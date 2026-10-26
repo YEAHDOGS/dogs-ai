@@ -1,0 +1,31 @@
+{
+  "name": "dogs-ai-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:setup": "npm --prefix electron install",
+    "electron:sync": "vite build && cap copy @capacitor-community/electron",
+    "desktop": "npm run electron:sync && npm --prefix electron run electron:start",
+    "desktop:dir": "npm run electron:sync && npm --prefix electron run electron:pack",
+    "desktop:dist": "npm run electron:sync && npm --prefix electron run electron:make"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.3",
+    "@lucide/svelte": "1.61.0",
+    "@mediabunny/mp3-encoder": "1.62.1",
+    "mediabunny": "1.62.1"
+  },
+  "devDependencies": {
+    "@capacitor-community/electron": "^5.0.1",
+    "@capacitor/cli": "8.5.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tailwindcss/vite": "4.3.3",
+    "svelte": "5.57.2",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.5"
+  }
+}

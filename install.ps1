@@ -57,14 +57,23 @@ Exec { uv pip install --python $VenvPy torch torchvision torchaudio --index-url 
 Exec { uv pip install --python $VenvPy -r (Join-Path $ComfyDir 'requirements.txt') } 'ComfyUI requirements'
 Exec { & $VenvPy -c "import torch; print('    torch', torch.__version__, 'cuda', torch.cuda.is_available())" } 'torch check'
 
-# Point ComfyUI at the FLUX download folder (keeps the HF repo layout, no copying).
+# Point ComfyUI at the FLUX download folder (keeps the HF repo layout, no copying) and at runtime/models/linked,
+# where the dogs server hard-links every model it finds (project models/ folder, every user's HF cache).
 $fluxFwd = $FluxDir -replace '\\', '/'
+$linkedFwd = (Join-Path $Runtime 'models\linked') -replace '\\', '/'
 @"
 dogs_ai:
   base_path: $fluxFwd
   diffusion_models: diffusion_models
   text_encoders: text_encoders
   vae: vae
+dogs_linked:
+  base_path: $linkedFwd
+  diffusion_models: diffusion_models
+  text_encoders: text_encoders
+  vae: vae
+  checkpoints: checkpoints
+  loras: loras
 "@ | Set-Content -Encoding ascii (Join-Path $Runtime 'extra_model_paths.yaml')
 Write-Ok 'extra_model_paths.yaml written'
 
@@ -79,6 +88,13 @@ Write-Ok "opencode $(opencode --version 2>$null | Select-Object -Last 1)"
 Write-Step 'comfy MCP server (npm ci)'
 Push-Location (Join-Path $Repo 'mcp\comfy-mcp'); try { Exec { npm ci --no-audit --no-fund } 'npm ci comfy-mcp' } finally { Pop-Location }
 
+Write-Step 'dogs CLI + DOGS AI app'
+Push-Location $Repo; try {
+  Exec { npm link --no-audit --no-fund } 'npm link (dogs command)'
+  Exec { npm run app:install } 'app install'
+  Exec { npm --prefix app run build } 'app build'
+} finally { Pop-Location }
+
 # ---------------------------------------------------------------- 4. models
 if (-not $SkipModels) {
   & (Join-Path $Repo 'scripts\download-models.ps1')
@@ -88,6 +104,9 @@ if (-not $SkipModels) {
 if (-not $SkipOpencodeConfig) { & (Join-Path $Repo 'scripts\link-opencode.ps1') }
 
 Write-Step 'Done. Next:'
+Write-Host '    dogs models                    # what is installed / missing'
+Write-Host '    dogs gen image "a red fox"     # generate from the terminal'
+Write-Host '    npm run desktop                # the DOGS AI desktop app'
 Write-Host '    .\scripts\start.ps1            # starts Ollama + ComfyUI'
 Write-Host '    opencode                       # in any project folder'
 Write-Host '    .\scripts\doctor.ps1           # health check'

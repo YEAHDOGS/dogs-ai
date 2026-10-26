@@ -4,3 +4,5 @@ outputs/
 node_modules/
 *.log
 .env
+models/*
+!models/.gitkeep

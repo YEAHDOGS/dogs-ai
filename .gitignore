@@ -1,0 +1,6 @@
+# Runtime (installed/downloaded by install.ps1, never committed)
+runtime/
+outputs/
+node_modules/
+*.log
+.env

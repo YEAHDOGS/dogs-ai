@@ -4,6 +4,7 @@
 import { spawn } from 'child_process';
 import type { ChildProcess } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
 import { join, resolve } from 'path';
 
 const PORT = Number(process.env.DOGS_PORT || 8787);
@@ -23,6 +24,8 @@ function dogsHome(): string | null {
     // not written: dev run, fall through to the source tree
   }
   candidates.push(resolve(__dirname, '..', '..', '..', '..'));
+  // Release builds record no folder: they expect the dogs CLI archive (or a clone) extracted to ~/dogs-ai.
+  candidates.push(join(homedir(), 'dogs-ai'));
   return candidates.find((d) => d && existsSync(join(d, 'server', 'bin', 'dogs.mjs'))) || null;
 }
 

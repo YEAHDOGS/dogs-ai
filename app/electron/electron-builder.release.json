@@ -1,0 +1,38 @@
+{
+  "appId": "net.wearedogs.ai",
+  "productName": "DOGS AI",
+  "artifactName": "dogs-code-${version}-${arch}.${ext}",
+  "directories": {
+    "buildResources": "resources",
+    "output": "release"
+  },
+  "files": ["assets/**/*", "build/**/*", "capacitor.config.*", "app/**/*"],
+  "publish": { "provider": "github", "releaseType": "release" },
+  "toolsets": { "appimage": "1.0.3" },
+  "win": {
+    "target": ["nsis"],
+    "icon": "assets/appIcon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "DOGS AI"
+  },
+  "mac": {
+    "category": "public.app-category.graphics-design",
+    "target": ["dmg", "zip"],
+    "icon": "assets/appIcon.png"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "assets/appIcon.png",
+    "category": "Graphics",
+    "executableName": "dogs-ai",
+    "maintainer": "DOGS",
+    "synopsis": "Local image, video and audio generation"
+  }
+}

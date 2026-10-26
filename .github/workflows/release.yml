@@ -1,0 +1,257 @@
+name: Release
+
+# Manual only: Actions -> Release -> Run workflow. Builds the desktop app for macOS, Windows and Linux plus a
+# portable `dogs` CLI archive per platform, then publishes them as GitHub release v<version>.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v, e.g. 0.0.1"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as a pre-release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+  NODE_MAJOR: "24"
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check version and tag
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 0.0.1 or 0.1.0-beta.1, got '$VERSION'." >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "Tag v$VERSION already exists." >&2
+            exit 1
+          fi
+
+  desktop:
+    name: Desktop ${{ matrix.platform }}
+    needs: preflight
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: mac
+            runner: macos-latest
+            args: --mac --x64 --arm64
+          - platform: linux
+            runner: ubuntu-latest
+            args: --linux --x64 --arm64
+          # NSIS puts every --arch into one installer, so each Windows arch gets its own run.
+          - platform: win-x64
+            runner: windows-latest
+            args: --win --x64
+          - platform: win-arm64
+            runner: windows-latest
+            args: --win --arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_MAJOR }}
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            app/electron/package-lock.json
+
+      - name: Install
+        run: |
+          npm ci --prefix app --no-audit --no-fund
+          npm ci --prefix app/electron --no-audit --no-fund
+
+      - name: Build web app and Electron shell
+        run: |
+          npm --prefix app run electron:sync
+          npm --prefix app/electron run build
+
+      - name: Package
+        working-directory: app/electron
+        run: |
+          npx electron-builder build -c ./electron-builder.release.json ${{ matrix.args }} --publish never \
+            -c.extraMetadata.version="$VERSION" \
+            -c.publish.owner="${GITHUB_REPOSITORY%%/*}" \
+            -c.publish.repo="${GITHUB_REPOSITORY#*/}"
+
+      - name: Collect release assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p publish
+          for f in app/electron/release/*.{dmg,zip,AppImage,deb,exe,blockmap,yml}; do
+            [[ "$(basename "$f")" == __* ]] && continue
+            cp "$f" publish/
+          done
+          # latest.yml has no arch in its name, so both Windows runs write one; the release job merges them.
+          if [[ "${{ matrix.platform }}" == win-* ]]; then
+            mv publish/latest.yml "publish/latest-${{ matrix.platform }}.yml"
+            rm -f publish/builder-debug.yml
+          fi
+          ls -la publish
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: publish/*
+          if-no-files-found: error
+
+  cli:
+    name: CLI archives
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_MAJOR }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # The archive's `dogs serve` serves this build as the web app.
+      - name: Build web app
+        run: |
+          npm ci --prefix app --no-audit --no-fund
+          npm --prefix app run build
+
+      # Each archive is the project (install.ps1, server, scripts, workflows, mcp, ...) plus a Node runtime
+      # and a `dogs` launcher, so it runs without Node installed. Extract it to ~/dogs-ai for the desktop app.
+      - name: Build archives
+        run: |
+          set -euo pipefail
+          node_version=$(curl -fsSL https://nodejs.org/dist/index.json \
+            | jq -r --arg m "v$NODE_MAJOR." '[.[] | select(.version | startswith($m))][0].version')
+          echo "Bundling Node $node_version"
+          curl -fsSLo "$RUNNER_TEMP/SHASUMS256.txt" "https://nodejs.org/dist/$node_version/SHASUMS256.txt"
+          mkdir -p dist-cli
+
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
+            os=${target%-*}; arch=${target#*-}
+            name="dogs-$VERSION-$target"
+            stage="$RUNNER_TEMP/stage/$name"
+            mkdir -p "$stage/node"
+            git archive --format=tar HEAD | tar -x -C "$stage"
+            rm -rf "$stage/.github"
+            cp -r app/dist "$stage/app/dist"
+
+            case "$os" in
+              win32) node_file="node-$node_version-win-$arch.zip" ;;
+              linux) node_file="node-$node_version-linux-$arch.tar.xz" ;;
+              darwin) node_file="node-$node_version-darwin-$arch.tar.gz" ;;
+            esac
+            curl -fsSLo "$RUNNER_TEMP/$node_file" "https://nodejs.org/dist/$node_version/$node_file"
+            (cd "$RUNNER_TEMP" && grep " $node_file\$" SHASUMS256.txt | sha256sum -c -)
+            unpack="$RUNNER_TEMP/node-$target"
+            mkdir -p "$unpack"
+            if [[ "$os" == win32 ]]; then
+              unzip -q "$RUNNER_TEMP/$node_file" -d "$unpack"
+              cp "$unpack"/*/node.exe "$stage/node/"
+              printf '@"%%~dp0node\\node.exe" "%%~dp0server\\bin\\dogs.mjs" %%*\r\n' > "$stage/dogs.cmd"
+              (cd "$RUNNER_TEMP/stage" && zip -qr "$GITHUB_WORKSPACE/dist-cli/$name.zip" "$name")
+            else
+              tar -xf "$RUNNER_TEMP/$node_file" -C "$unpack"
+              cp "$unpack"/*/bin/node "$stage/node/"
+              printf '#!/bin/sh\nd=$(cd "$(dirname "$0")" && pwd)\nexec "$d/node/node" "$d/server/bin/dogs.mjs" "$@"\n' > "$stage/dogs"
+              chmod +x "$stage/dogs" "$stage/node/node"
+              tar -C "$RUNNER_TEMP/stage" -czf "dist-cli/$name.tar.gz" "$name"
+            fi
+            rm -rf "$stage" "$unpack" "$RUNNER_TEMP/$node_file"
+          done
+          ls -la dist-cli
+
+      - name: Smoke test the Linux archive
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/smoke"
+          tar -xzf "dist-cli/dogs-$VERSION-linux-x64.tar.gz" -C "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/dogs-$VERSION-linux-x64/dogs" where
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli
+          path: dist-cli/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [desktop, cli]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli
+          path: release-assets
+
+      - name: Write CLI archive checksums
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dogs-"$VERSION"-*.tar.gz dogs-"$VERSION"-*.zip)
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No CLI archives were produced." >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
+      # electron-updater reads one latest.yml per platform and picks the entry whose name carries its arch.
+      - name: Merge Windows updater manifests
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          yq '.files += load("latest-win-arm64.yml").files' latest-win-x64.yml > latest.yml
+          rm latest-win-x64.yml latest-win-arm64.yml
+          cat latest.yml
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes)
+          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "v$VERSION" "${flags[@]}" release-assets/*

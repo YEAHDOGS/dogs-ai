@@ -3,6 +3,14 @@
 const fs = require('fs')
 const path = require('path')
 
+const target = path.join(__dirname, 'build', 'dogs-home.json')
+// A CI runner's checkout means nothing on the machine that installs the app.
+if (process.env.CI && !process.env.DOGS_HOME) {
+  fs.rmSync(target, { force: true })
+  console.log('dogs home: not recorded (CI build)')
+  process.exit(0)
+}
+
 const HOME = process.env.DOGS_HOME || path.resolve(__dirname, '..', '..')
-fs.writeFileSync(path.join(__dirname, 'build', 'dogs-home.json'), JSON.stringify({ home: HOME }, null, 1))
+fs.writeFileSync(target, JSON.stringify({ home: HOME }, null, 1))
 console.log(`dogs home: ${HOME}`)

@@ -1,7 +1,7 @@
 // Thin ComfyUI client: start/stop the local server, queue an API-format graph, stream progress over the
 // websocket, and collect output files (images, video, audio) into outputs/.
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { promises as fs, openSync, closeSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { COMFY_URL, COMFY_DIR, OLLAMA_URL, OUTPUTS, REPO, RUNTIME, STACK, EXTRA_PATHS_YAML, VRAM_HANDOFF, IS_WIN } from "./config.mjs";
@@ -31,30 +31,117 @@ export async function comfyStats() {
   };
 }
 
+const ERROR_LINES = 3;
+const ERROR_CHARS = 400;
+/** The line that names the error (a traceback's last line, "forrtl: error ..."), else the last few lines. */
+async function lastLines(file) {
+  try {
+    const lines = (await fs.readFile(file, "utf8")).replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const named = lines.findLast((l) => /(error|exception)\b|No Python at/i.test(l) && !/^\[(INFO|WARNING)\]/.test(l));
+    return (named ?? lines.slice(-ERROR_LINES).join(" · ")).slice(0, ERROR_CHARS);
+  } catch { return ""; }
+}
+
+const START_TIMEOUT_S = 180;
+const LOG = path.join(RUNTIME, "comfyui.log");
+const ERR_LOG = path.join(RUNTIME, "comfyui.log.err");
+
+/** Why the last start failed, for /api/health; cleared once ComfyUI is up. */
+export let startError = "";
+
 let starting = null;
+export const comfyStarting = () => starting !== null;
 export async function startComfy() {
   if (await comfyUp()) return;
-  if (!starting) {
-    starting = new Promise((resolve, reject) => {
-      let p;
-      if (IS_WIN) {
-        p = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(REPO, "scripts", "start-comfyui.ps1")],
-          { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
-      } else {
-        // Raspberry Pi / Linux: run the venv's python directly, detached, logging to runtime/comfyui.log.
-        const py = path.join(COMFY_DIR, ".venv", "bin", "python");
-        p = spawn("sh", ["-c", `"${py}" main.py ${STACK.comfyui.args.join(" ")} --output-directory "${OUTPUTS}" ` +
-          `--extra-model-paths-config "${EXTRA_PATHS_YAML}" > "${RUNTIME}/comfyui.log" 2>&1 & echo $! > "${RUNTIME}/comfyui.pid"`],
-          { cwd: COMFY_DIR, stdio: ["ignore", "ignore", "pipe"] });
-      }
-      let err = "";
-      p.stderr.on("data", (d) => (err += d));
-      p.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`starting ComfyUI failed (exit ${code}): ${err.trim()}`))));
-    }).finally(() => (starting = null));
-  }
+  starting ??= launchOrRepair().then(() => { startError = ""; }, (e) => { startError = e.message; throw e; }).finally(() => (starting = null));
   await starting;
-  for (let i = 0; i < 180 && !(await comfyUp()); i++) await new Promise((r) => setTimeout(r, 1000));
-  if (!(await comfyUp())) throw new Error(`ComfyUI still not reachable at ${COMFY_URL}`);
+}
+
+// A venv whose base Python went missing is repaired by reinstalling that exact version with uv (the venv keeps
+// pointing at the same path), then started again.
+async function launchOrRepair() {
+  try {
+    await launch();
+  } catch (e) {
+    if (!e.missingPython) throw e;
+    log(`base Python ${e.missingPython} is missing; reinstalling it with uv`);
+    await installPython(e.missingPython);
+    try {
+      await launch();
+    } catch (again) {
+      if (!again.missingPython) throw again;
+      throw new Error(`${again.message}. Reinstalling Python ${again.missingPython} with uv didn't bring it back: delete runtime\\ComfyUI\\.venv and run install.ps1 -SkipModels`);
+    }
+  }
+}
+
+const UV_TIMEOUT_MS = 10 * 60_000;
+function installPython(version) {
+  return new Promise((resolve, reject) => {
+    const fail = (why) => reject(new Error(`ComfyUI's Python ${version} is missing and \`uv python install ${version} --reinstall\` failed: ${why}`));
+    const p = spawn("uv", ["python", "install", version, "--reinstall"], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"], timeout: UV_TIMEOUT_MS });
+    let err = "";
+    p.stderr.on("data", (d) => (err += d));
+    p.on("error", (e) => fail(e.code === "ENOENT" ? "uv is not installed (run install.ps1)" : e.message));
+    p.on("exit", (code) => (code === 0 ? resolve() : fail(err.trim().split(/\r?\n/).filter(Boolean).slice(-2).join(" · ") || `exit ${code}`)));
+  });
+}
+
+// The venv's python.exe only forwards to the Python it was built from (pyvenv.cfg "home").
+async function venvBase() {
+  let cfg = "";
+  try { cfg = await fs.readFile(path.join(COMFY_DIR, ".venv", "pyvenv.cfg"), "utf8"); } catch {}
+  const field = (k) => new RegExp(`^${k}\\s*=\\s*(.+)$`, "m").exec(cfg)?.[1].trim();
+  const home = field("home");
+  const base = home && path.join(home, IS_WIN ? "python.exe" : "python3");
+  let exists = false;
+  if (base) try { await fs.access(base); exists = true; } catch {}
+  return { home, base, exists, version: field("version_info") || STACK.comfyui.python };
+}
+
+/** Turn a failed start into an error that says what to do; marks a missing base Python as repairable. */
+async function startFailure(why) {
+  const msg = (more = "") => `ComfyUI didn't start: ${why}${more} (full log: ${path.relative(REPO, ERR_LOG)})`;
+  if (!/No Python at/i.test(why)) return new Error(msg());
+  const v = await venvBase();
+  if (!v.home) return new Error(msg(". ComfyUI's Python environment is damaged: delete runtime\\ComfyUI\\.venv and run install.ps1 -SkipModels"));
+  if (!v.exists) return Object.assign(new Error(msg(`. The Python it was built from is gone`)), { missingPython: v.version });
+  return new Error(msg(`. ${v.base} exists, but Windows wouldn't start it from here (antivirus or permissions)`));
+}
+
+// ComfyUI outlives this process either way; its stdout and stderr go to runtime/comfyui.log and .log.err.
+async function launch() {
+  await fs.mkdir(OUTPUTS, { recursive: true });
+  const py = path.join(COMFY_DIR, ".venv", IS_WIN ? "Scripts\\python.exe" : "bin/python");
+  try { await fs.access(py); } catch { throw new Error(`ComfyUI isn't installed (no ${path.relative(REPO, py)}): run install.ps1`); }
+  if (IS_WIN) {
+    // Start-Process gives ComfyUI a hidden console of its own. Spawned detached from Node it has none, and the
+    // Intel Fortran runtime under torch then aborts it ("forrtl: error (200) ... window-CLOSE event").
+    // The script waits until ComfyUI answers (or exits early) before it returns.
+    const code = await new Promise((resolve) => {
+      spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(REPO, "scripts", "start-comfyui.ps1")],
+        { stdio: "ignore", windowsHide: true }).on("exit", resolve).on("error", (e) => resolve(e.message));
+    });
+    if (await comfyUp()) return;
+    throw await startFailure((await lastLines(ERR_LOG)) || `start-comfyui.ps1 exited with ${code}`);
+  }
+  const out = openSync(LOG, "w"), err = openSync(ERR_LOG, "w");
+  const p = spawn(py, ["main.py", ...STACK.comfyui.args, "--output-directory", OUTPUTS, "--extra-model-paths-config", EXTRA_PATHS_YAML],
+    { cwd: COMFY_DIR, detached: true, windowsHide: true, stdio: ["ignore", out, err] });
+  closeSync(out); closeSync(err);
+  let exited = null;
+  p.on("exit", (code) => (exited = code ?? "signal"));
+  p.on("error", (e) => (exited = e.message));
+  p.unref();
+  if (p.pid) await fs.writeFile(path.join(RUNTIME, "comfyui.pid"), String(p.pid));
+  for (let i = 0; i < START_TIMEOUT_S; i++) {
+    if (await comfyUp()) return;
+    if (exited !== null) {
+      throw await startFailure((await lastLines(ERR_LOG)) || `exit ${exited}`);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`ComfyUI didn't come up within ${START_TIMEOUT_S} s (log: ${path.relative(REPO, ERR_LOG)})`);
 }
 
 export async function stopComfy() {
@@ -158,7 +245,8 @@ export async function collectOutputs(items) {
   for (const it of items) {
     if (it.type && it.type !== "output") continue;
     const rel = path.join(it.subfolder || "", it.filename);
-    const dest = path.join(OUTPUTS, rel);
+    const dest = path.resolve(OUTPUTS, rel);
+    if (!dest.startsWith(OUTPUTS + path.sep)) continue; // never write outside outputs/
     try { await fs.access(dest); } catch {
       const q = new URLSearchParams({ filename: it.filename, subfolder: it.subfolder || "", type: it.type || "output" });
       await fs.mkdir(path.dirname(dest), { recursive: true });

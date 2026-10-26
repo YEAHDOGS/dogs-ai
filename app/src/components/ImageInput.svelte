@@ -6,8 +6,9 @@
   import { url } from '../lib/api.js'
   import { EASE } from '../lib/motion.js'
 
-  /** @type {{ label: string, value: string }} */
-  let { label, value = $bindable('') } = $props()
+  // No fallback: Svelte refuses bind:value={undefined} into a prop that has one, and "no image yet" is undefined.
+  /** @type {{ label: string, value?: string }} */
+  let { label, value = $bindable() } = $props()
 
   const ACCEPT = 'image/png,image/jpeg,image/webp'
   const MAX_BYTES = 25 * 2 ** 20

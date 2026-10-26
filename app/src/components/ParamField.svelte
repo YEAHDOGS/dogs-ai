@@ -4,7 +4,7 @@
   /** @type {{ name: string, spec: { type: string, label?: string, min?: number, max?: number, step?: number, options?: string[] }, value: any }} */
   let { name, spec, value = $bindable() } = $props()
 
-  const INPUT = 'w-full bg-card border border-white/10 focus:border-neon-red/50 rounded-lg px-3 py-2 text-sm 2xl:text-lg outline-none'
+  const INPUT = 'w-full well rounded-lg px-3 py-2 text-sm 2xl:text-lg outline-none'
   const label = $derived(spec.label || name.replace(/_/g, ' '))
 </script>
 

@@ -8,6 +8,7 @@ export const KINDS = [
 ]
 export const VIEWS = [
   { id: 'create', label: 'Create' },
+  { id: 'chat', label: 'Chat' },
   { id: 'library', label: 'Library' },
   { id: 'models', label: 'Models' },
 ]
@@ -45,6 +46,8 @@ class Store {
   /** @type {any} */ llm = $state({ up: false, models: [], disk: {} })
   /** Image handed from the Library to Create → Video as a start frame. @type {{ file: string, url: string } | null} */
   startFrame = $state(null)
+  /** Prompt text handed from the Library's Prompts to the Create composer. @type {string | null} */
+  draftPrompt = $state(null)
 
   /** @param {string} kind */
   setKind(kind) {
@@ -144,6 +147,11 @@ class Store {
     this.#onDownload(d)
   }
 
+  /** Add a chat GGUF from Hugging Face to Ollama. @param {string} repo @param {string} file */
+  async pullLlm(repo, file) {
+    this.#onDownload(await api('/api/llm/pull', { method: 'POST', json: { repo, file } }))
+  }
+
   #onJob(j) {
     const i = this.jobs.findIndex((x) => x.id === j.id)
     if (i >= 0) this.jobs[i] = j
@@ -154,7 +162,7 @@ class Store {
     const i = this.downloads.findIndex((x) => x.id === d.id)
     if (i >= 0) this.downloads[i] = d
     else this.downloads = [d, ...this.downloads]
-    if (d.status === 'done') this.scan().catch(() => {})
+    if (d.status === 'done') (d.ollama ? this.loadLlm() : this.scan()).catch(() => {})
   }
 }
 

@@ -105,7 +105,7 @@
   {/if}
 
   {#each store.downloads.slice(0, 5) as d (d.id)}
-    <div class="p-3 rounded-xl bg-black/40 border border-white/5 text-xs 2xl:text-sm font-mono">
+    <div class="p-3 rounded-xl well text-xs 2xl:text-sm font-mono">
       <div class="mb-1 {d.status === 'error' ? 'text-neon-red' : d.status === 'done' ? 'text-emerald-400' : 'text-muted'}">{d.label}: {d.status}</div>
       <div class="text-neutral-500 break-all">{d.error || d.log.at(-1) || ''}</div>
     </div>

@@ -51,6 +51,101 @@ export const FAMILIES = [
     }),
   },
   {
+    id: "flux2-klein-4b",
+    kind: "image",
+    label: "FLUX.2 Klein 4B",
+    blurb: "Distilled 4-step FLUX.2. Very fast, ungated, and shares the FLUX VAE you may already have.",
+    files: {
+      model: { folder: "diffusion_models", match: /^flux-2-klein-4b.*\.safetensors$/i },
+      text_encoder: { folder: "text_encoders", match: /^qwen_3_4b.*\.safetensors$/i },
+      vae: { folder: "vae", match: /^flux2-vae.*\.safetensors$/i },
+    },
+    download: {
+      items: [
+        { repo: "Comfy-Org/flux2-klein", file: "split_files/diffusion_models/flux-2-klein-4b.safetensors", role: "model", size: 7751105712 },
+        { repo: "Comfy-Org/flux2-klein", file: "split_files/text_encoders/qwen_3_4b.safetensors", role: "text_encoder", size: 8044982048 },
+        { repo: "Comfy-Org/flux2-dev", file: "split_files/vae/flux2-vae.safetensors", role: "vae", size: 336213556 },
+      ],
+    },
+    params: { ...IMAGE_SIZE, steps: int(4, 1, 16) },
+    graph: ({ files, prompt, width, height, steps, seed, prefix }) => ({
+      unet: { class_type: "UNETLoader", inputs: { unet_name: files.model, weight_dtype: "default" } },
+      clip: { class_type: "CLIPLoader", inputs: { clip_name: files.text_encoder, type: "flux2", device: "default" } },
+      vae: { class_type: "VAELoader", inputs: { vae_name: files.vae } },
+      pos: { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["clip", 0] } },
+      neg: { class_type: "ConditioningZeroOut", inputs: { conditioning: ["pos", 0] } },
+      guider: { class_type: "CFGGuider", inputs: { model: ["unet", 0], positive: ["pos", 0], negative: ["neg", 0], cfg: 1 } },
+      noise: { class_type: "RandomNoise", inputs: { noise_seed: seed } },
+      sampler: { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
+      sigmas: { class_type: "Flux2Scheduler", inputs: { steps, width, height } },
+      latent: { class_type: "EmptyFlux2LatentImage", inputs: { width, height, batch_size: 1 } },
+      sample: { class_type: "SamplerCustomAdvanced", inputs: { noise: ["noise", 0], guider: ["guider", 0], sampler: ["sampler", 0], sigmas: ["sigmas", 0], latent_image: ["latent", 0] } },
+      decode: { class_type: "VAEDecode", inputs: { samples: ["sample", 0], vae: ["vae", 0] } },
+      save: { class_type: "SaveImage", inputs: { images: ["decode", 0], filename_prefix: prefix } },
+    }),
+  },
+  {
+    id: "flux2-klein-9b",
+    kind: "image",
+    label: "FLUX.2 Klein 9B",
+    blurb: "Bigger, undistilled FLUX.2 (20 steps). Better detail; wants 12 GB+ VRAM.",
+    files: {
+      model: { folder: "diffusion_models", match: /^flux-2-klein-base-9b.*\.safetensors$/i },
+      text_encoder: { folder: "text_encoders", match: /^qwen_3_8b.*\.safetensors$/i },
+      vae: { folder: "vae", match: /^(full_encoder_small_decoder|flux2-vae).*\.safetensors$/i },
+    },
+    download: {
+      gated: "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9b-fp8",
+      items: [
+        // Size unknown until the license is accepted on Hugging Face.
+        { repo: "black-forest-labs/FLUX.2-klein-base-9b-fp8", file: "flux-2-klein-base-9b-fp8.safetensors", role: "model", size: null },
+        { repo: "Comfy-Org/flux2-klein-9B", file: "split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors", role: "text_encoder", size: 8664848742 },
+        { repo: "black-forest-labs/FLUX.2-small-decoder", file: "full_encoder_small_decoder.safetensors", role: "vae", size: 249519092 },
+      ],
+    },
+    params: { ...IMAGE_SIZE, steps: int(20, 4, 50), cfg: num(5, 1, 10), negative: text("", "Negative prompt") },
+    graph: ({ files, prompt, negative, width, height, steps, cfg, seed, prefix }) => ({
+      unet: { class_type: "UNETLoader", inputs: { unet_name: files.model, weight_dtype: "default" } },
+      clip: { class_type: "CLIPLoader", inputs: { clip_name: files.text_encoder, type: "flux2", device: "default" } },
+      vae: { class_type: "VAELoader", inputs: { vae_name: files.vae } },
+      pos: { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["clip", 0] } },
+      neg: { class_type: "CLIPTextEncode", inputs: { text: negative || "", clip: ["clip", 0] } },
+      guider: { class_type: "CFGGuider", inputs: { model: ["unet", 0], positive: ["pos", 0], negative: ["neg", 0], cfg } },
+      noise: { class_type: "RandomNoise", inputs: { noise_seed: seed } },
+      sampler: { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
+      sigmas: { class_type: "Flux2Scheduler", inputs: { steps, width, height } },
+      latent: { class_type: "EmptyFlux2LatentImage", inputs: { width, height, batch_size: 1 } },
+      sample: { class_type: "SamplerCustomAdvanced", inputs: { noise: ["noise", 0], guider: ["guider", 0], sampler: ["sampler", 0], sigmas: ["sigmas", 0], latent_image: ["latent", 0] } },
+      decode: { class_type: "VAEDecode", inputs: { samples: ["sample", 0], vae: ["vae", 0] } },
+      save: { class_type: "SaveImage", inputs: { images: ["decode", 0], filename_prefix: prefix } },
+    }),
+  },
+  {
+    id: "flux1-schnell",
+    kind: "image",
+    label: "FLUX.1 schnell",
+    blurb: "The classic 4-step FLUX.1, all-in-one FP8 checkpoint. Apache-licensed.",
+    files: {
+      model: { folder: "checkpoints", match: /^flux1-schnell-fp8.*\.safetensors$/i },
+    },
+    download: {
+      items: [{ repo: "Comfy-Org/flux1-schnell", file: "flux1-schnell-fp8.safetensors", role: "model", size: 17236328572 }],
+    },
+    params: { ...IMAGE_SIZE, steps: int(4, 1, 12) },
+    graph: ({ files, prompt, width, height, steps, seed, prefix }) => ({
+      ckpt: { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: files.model } },
+      pos: { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["ckpt", 1] } },
+      neg: { class_type: "CLIPTextEncode", inputs: { text: "", clip: ["ckpt", 1] } },
+      latent: { class_type: "EmptySD3LatentImage", inputs: { width, height, batch_size: 1 } },
+      sample: {
+        class_type: "KSampler",
+        inputs: { model: ["ckpt", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0], seed, steps, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 },
+      },
+      decode: { class_type: "VAEDecode", inputs: { samples: ["sample", 0], vae: ["ckpt", 2] } },
+      save: { class_type: "SaveImage", inputs: { images: ["decode", 0], filename_prefix: prefix } },
+    }),
+  },
+  {
     id: "qwen-image-2.1",
     kind: "image",
     label: "Qwen-Image 2.1",
@@ -283,7 +378,12 @@ export function downloadInfo(f, roles) {
     .filter((it) => !roles || roles.includes(it.role))
     .map((it) => ({ ...it, url: `${HF}/${it.repo}/blob/main/${it.file}` }));
   const repos = [...new Set(items.map((it) => it.repo))].map((r) => ({ repo: r, url: `${HF}/${r}` }));
-  return { gated: f.download.gated || null, items, repos, size: items.reduce((s, it) => s + (it.size || 0), 0) };
+  return {
+    gated: f.download.gated || null, items, repos,
+    size: items.reduce((s, it) => s + (it.size || 0), 0),
+    // A gated file's size can't be read before its license is accepted, so the total is a lower bound then.
+    sizeUnknown: items.some((it) => it.size == null),
+  };
 }
 
 /** Public view of a family (no regexes or functions). */

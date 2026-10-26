@@ -10,7 +10,7 @@
   const DURATION_MS = 380
 </script>
 
-<section class="rounded-2xl bg-card/50 border border-white/5">
+<section class="rounded-2xl glass">
   <header class="flex items-center gap-3 px-4 py-3 2xl:px-6 2xl:py-4">
     <button class="flex items-center gap-2 font-bold tracking-wide text-sm 2xl:text-xl hover:text-neon-red transition-colors"
       onclick={() => (open = !open)} aria-expanded={open}>

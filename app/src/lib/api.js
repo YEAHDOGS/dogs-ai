@@ -30,8 +30,10 @@ export function url(path, withKey = false) {
 export async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) }
   if (settings.key) headers.authorization = `Bearer ${settings.key}`
-  if (opts.json !== undefined) headers['content-type'] = 'application/json'
-  const res = await fetch(url(path), { ...opts, headers, body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body })
+  // The engine only accepts JSON writes, so every POST carries a JSON body (empty if there is nothing to send).
+  const json = opts.json !== undefined ? opts.json : opts.method === 'POST' ? {} : undefined
+  if (json !== undefined) headers['content-type'] = 'application/json'
+  const res = await fetch(url(path), { ...opts, headers, body: json !== undefined ? JSON.stringify(json) : opts.body })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
   return body

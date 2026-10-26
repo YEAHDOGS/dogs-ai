@@ -9,6 +9,7 @@ import { getModel, listModels, prepareModel, ensureExtraPaths, describeProblem }
 import { startComfy, stopComfy, comfyUp, runGraph, collectOutputs, freeComfy, unloadLlm, nodeTypes, interrupt, uploadImage } from "./comfy.mjs";
 import { OUTPUTS, WORKFLOWS_DIR, VRAM_HANDOFF } from "./config.mjs";
 import { saveJob, queryJobs, getJobRow, deleteJobRow } from "./db.mjs";
+import { recordUse } from "./prompts.mjs";
 
 export const events = new EventEmitter();
 const live = new Map(); // queued + running jobs
@@ -18,6 +19,7 @@ const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 export const mimeOf = (f) => MIME[path.extname(f).toLowerCase()] || "application/octet-stream";
 
 const FINISHED = ["done", "error", "cancelled"];
+const MAX_QUEUED = 50;
 
 /** Nothing is buffered (each change is written as it happens); kept so the CLI can await it before exiting. */
 export const flush = () => Promise.resolve();
@@ -41,7 +43,12 @@ export async function removeJob(id, { files = false } = {}) {
   const job = await getJob(id);
   if (!job) return null;
   if (!FINISHED.includes(job.status)) throw Object.assign(new Error("cancel the job before deleting it"), { status: 409 });
-  if (files) for (const o of job.outputs) await fs.rm(path.join(OUTPUTS, o.file), { force: true });
+  if (files) {
+    for (const o of job.outputs) {
+      const abs = path.resolve(OUTPUTS, o.file);
+      if (abs.startsWith(OUTPUTS + path.sep)) await fs.rm(abs, { force: true });
+    }
+  }
   await deleteJobRow(id);
   return job;
 }
@@ -50,6 +57,7 @@ const newSeed = () => Math.floor(Math.random() * 2 ** 48);
 
 /** Validate the request and queue it. Throws on bad input (the API turns that into a 400). */
 export async function submit(req) {
+  if (live.size >= MAX_QUEUED) throw Object.assign(new Error(`the queue is full (${MAX_QUEUED} jobs); try again when some finish`), { status: 429 });
   const prompt = String(req.prompt || "").trim();
   if (!prompt) throw badRequest("prompt is required");
   const model = await pickModel(req);
@@ -66,6 +74,7 @@ export async function submit(req) {
   };
   live.set(job.id, job);
   update(job, { status: "queued" });
+  recordUse(prompt, job.kind).catch((e) => console.error("[dogs] saving prompt failed:", e.message));
   serial(() => run(job, model));
   return job;
 }

@@ -220,7 +220,7 @@ Run these on Windows, from the repo root:
 
 ```powershell
 npm run app:install     # once
-npm run dist            # -> app\electron\dist\
+npm run dist            # -> build\
 ```
 
 | Output | What |
@@ -235,7 +235,7 @@ Run on a Mac (Apple's tools are required, so it can't be cross-built from Window
 
 ```bash
 npm run app:install
-npm run dist            # -> app/electron/dist/DOGS AI-<version>.dmg and a .zip of DOGS AI.app
+npm run dist            # -> build/DOGS AI-<version>.dmg and a .zip of DOGS AI.app
 ```
 
 Open the .dmg and drag **DOGS AI** to **Applications**. The build is not signed, so the first launch needs

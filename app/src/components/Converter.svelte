@@ -14,7 +14,7 @@
   /** @type {{ item: any, onClose: () => void }} */
   let { item, onClose } = $props()
 
-  const INPUT = 'w-full bg-card border border-white/10 focus:border-neon-red/50 rounded-lg px-3 py-2 text-sm 2xl:text-lg outline-none'
+  const INPUT = 'w-full well rounded-lg px-3 py-2 text-sm 2xl:text-lg outline-none'
   const LABEL = 'text-[11px] 2xl:text-sm uppercase tracking-wider text-muted'
   const CHIP = 'px-3 py-1.5 rounded-lg text-xs 2xl:text-base font-semibold border transition-colors'
   const UNITS = { KB: 1024, MB: 1024 ** 2 }
@@ -112,8 +112,8 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && close()} />
 
-<div class="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center md:p-6" role="dialog" aria-modal="true" aria-label="Convert" transition:fade={{ duration: PAGE_MS / 2 }}>
-  <div class="w-full md:max-w-3xl 2xl:max-w-5xl max-h-[92dvh] overflow-y-auto bg-card border border-white/10 rounded-t-3xl md:rounded-3xl p-4 sm:p-6 flex flex-col gap-4"
+<div class="scrim z-50 flex items-end md:items-center justify-center md:p-6" role="dialog" aria-modal="true" aria-label="Convert" transition:fade={{ duration: PAGE_MS / 2 }}>
+  <div class="w-full md:max-w-3xl 2xl:max-w-5xl max-h-full overflow-y-auto glass-panel rounded-t-3xl md:rounded-3xl p-4 sm:p-6 flex flex-col gap-4"
     in:fly={{ y: 60, duration: PAGE_MS, easing: EASE }} out:fly={{ y: 40, duration: 200 }}>
     <div class="flex items-start gap-3">
       <div class="min-w-0 flex-1">
@@ -218,7 +218,7 @@
             </div>
           {/if}
 
-          <button class="flex items-center justify-center gap-2 py-3 rounded-xl font-bold bg-neon-red hover:bg-neon-red/85 disabled:opacity-50"
+          <button class="flex items-center justify-center gap-2 py-3 rounded-xl font-bold licorice disabled:opacity-50"
             onclick={run} disabled={busy || !format || !source}>
             {#if busy}<LoaderCircle size={16} class="animate-spin" /> Converting{progress ? ` ${Math.round(progress * 100)}%` : '…'}{:else}<Repeat size={16} /> Convert to {format.toUpperCase()}{/if}
           </button>

@@ -30,10 +30,45 @@ Usage:
   dogs comfy add-node gguf                    Install the ComfyUI-GGUF node (for .gguf weights)
   dogs models import <model id>               Copy a model's files in (when they are on another drive)
 
-Env: DOGS_HOST, DOGS_PORT, DOGS_API_KEY, COMFY_URL, DOGS_MODELS, VRAM_HANDOFF=0
+Shortcuts:
+  dogs image|video|audio "<prompt>"           same as dogs gen <kind> (also img, pic, vid, movie, sound, music)
+  dl/get/pull = download   g/make/create = gen   m/ls/list = models   s/start = serve   j/history = jobs
+  search/find = hf search  open/ui/desktop = app  chat/ollama = llm   paths = where
+
+Env: DOGS_HOST, DOGS_PORT, DOGS_API_KEY, DOGS_ORIGINS, COMFY_URL, DOGS_MODELS, VRAM_HANDOFF=0
 `;
 
-const argv = process.argv.slice(2);
+// Alternative names for commands and kinds. `dogs image "..."` is short for `dogs gen image "..."`.
+const COMMAND_ALIASES = {
+  dl: "download", get: "download", pull: "download", install: "download",
+  g: "gen", generate: "gen", make: "gen", create: "gen",
+  m: "models", ls: "models", list: "models",
+  s: "serve", server: "serve", start: "serve", api: "serve",
+  j: "jobs", history: "jobs", h: "jobs",
+  llms: "llm", chat: "llm", ollama: "llm",
+  huggingface: "hf", hub: "hf",
+  search: "hf search", find: "hf search",
+  open: "app", desktop: "app", ui: "app",
+  paths: "where", locations: "where",
+};
+const KIND_ALIASES = {
+  image: "image", img: "image", pic: "image", picture: "image", photo: "image", i: "image",
+  video: "video", vid: "video", movie: "video", clip: "video", v: "video",
+  audio: "audio", sound: "audio", music: "audio", song: "audio", sfx: "audio", a: "audio",
+};
+const HF_ALIASES = { find: "search", s: "search", ls: "search", list: "search", f: "files", dl: "download", get: "download" };
+
+function resolveArgs(args) {
+  let [first, ...more] = args;
+  const lower = first?.toLowerCase();
+  if (lower && COMMAND_ALIASES[lower]) [first, ...more] = [...COMMAND_ALIASES[lower].split(" "), ...more];
+  else if (lower && KIND_ALIASES[lower] && lower.length > 1) [first, ...more] = ["gen", KIND_ALIASES[lower], ...more];
+  if (first === "gen" && more[0] && KIND_ALIASES[more[0].toLowerCase()]) more[0] = KIND_ALIASES[more[0].toLowerCase()];
+  if (first === "hf" && more[0] && HF_ALIASES[more[0].toLowerCase()]) more[0] = HF_ALIASES[more[0].toLowerCase()];
+  return [first, ...more];
+}
+
+const argv = resolveArgs(process.argv.slice(2));
 const [cmd, ...rest] = argv;
 
 function flags(args) {
@@ -208,7 +243,7 @@ async function cmdHf(pos, opt) {
   }
   if (sub === "download") return cmdDownload(args, opt);
   // Anything else goes straight to the real CLI: dogs hf auth login, dogs hf cache ls, ...
-  const p = spawn("hf", process.argv.slice(process.argv.indexOf("hf") + 1), { stdio: "inherit", shell: process.platform === "win32" });
+  const p = spawn("hf", pos, { stdio: "inherit", shell: process.platform === "win32" });
   p.on("exit", (c) => process.exit(c ?? 0));
 }
 

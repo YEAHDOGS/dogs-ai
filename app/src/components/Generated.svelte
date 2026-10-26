@@ -48,14 +48,14 @@
 
 <div class="flex flex-col gap-3">
   <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
-    <div class="filters relative grid grid-cols-4 p-1 rounded-xl bg-black/40 border border-white/5 text-xs 2xl:text-base" style="--i: {fIndex}">
+    <div class="filters relative grid grid-cols-4 p-1 rounded-xl well text-xs 2xl:text-base" style="--i: {fIndex}">
       <span class="pill" aria-hidden="true"></span>
       {#each FILTERS as f (f.id)}
         <button class="relative z-10 px-3 py-1.5 font-semibold transition-colors {filter === f.id ? 'text-white' : 'text-muted hover:text-white'}"
           onclick={() => (filter = f.id)} aria-pressed={filter === f.id}>{f.label}</button>
       {/each}
     </div>
-    <label class="flex-1 flex items-center gap-2 bg-black/40 border border-white/5 focus-within:border-neon-red/50 rounded-xl px-3 py-2">
+    <label class="flex-1 flex items-center gap-2 well focus-within:border-neon-red/50 rounded-xl px-3 py-2">
       <Search size={15} class="text-muted" />
       <input class="flex-1 min-w-0 bg-transparent outline-none text-sm 2xl:text-lg" placeholder="Search prompts" bind:value={query} />
     </label>

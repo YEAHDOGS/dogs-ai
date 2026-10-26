@@ -3,7 +3,7 @@
   "productName": "DOGS AI",
   "directories": {
     "buildResources": "resources",
-    "output": "dist"
+    "output": "../../build"
   },
   "files": ["assets/**/*", "build/**/*", "capacitor.config.*", "app/**/*"],
   "publish": null,

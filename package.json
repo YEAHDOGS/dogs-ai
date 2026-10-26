@@ -10,6 +10,7 @@
     "app:install": "npm --prefix app install && npm --prefix app run electron:setup",
     "web": "npm --prefix app run build && node server/bin/dogs.mjs serve",
     "desktop": "npm --prefix app run desktop",
+    "desktop:dev": "npm --prefix app/electron run electron:start-live",
     "dist": "npm --prefix app run desktop:dist",
     "dist:dir": "npm --prefix app run desktop:dir"
   },

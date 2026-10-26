@@ -28,7 +28,10 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  <div class="flex justify-end">
+  <HubSearch />
+
+  <div class="flex items-center justify-between gap-3 pt-2 border-t border-white/5">
+    <h3 class="text-xs 2xl:text-base uppercase tracking-wider text-muted">Built-in models</h3>
     <button class={BTN} onclick={() => store.scan()} disabled={store.scanning}><RefreshCw size={14} class={store.scanning ? 'animate-spin' : ''} /> Rescan disks</button>
   </div>
 
@@ -46,7 +49,7 @@
                   <p class="text-xs 2xl:text-sm text-neutral-500">{o.family.blurb}</p>
                 </div>
                 <button class="{BTN} shrink-0" onclick={() => get(o.family.id)} disabled={running.has(o.family.id)}>
-                  <Download size={14} /> {running.has(o.family.id) ? 'Downloading…' : size(o.download.size)}
+                  <Download size={14} /> {running.has(o.family.id) ? 'Downloading…' : (o.download.sizeUnknown ? '≥ ' : '') + size(o.download.size)}
                 </button>
               </div>
               <div class="flex flex-col gap-0.5 text-[11px] 2xl:text-sm">
@@ -68,12 +71,10 @@
   {#if !offers.length}<p class="text-sm text-muted">Every built-in model is installed.</p>{/if}
 
   {#each store.downloads.slice(0, 4) as d (d.id)}
-    <div class="p-3 rounded-xl bg-black/40 border border-white/5 text-xs 2xl:text-sm font-mono">
+    <div class="p-3 rounded-xl well text-xs 2xl:text-sm font-mono">
       <div class="mb-1 {d.status === 'error' ? 'text-neon-red' : d.status === 'done' ? 'text-emerald-400' : 'text-muted'}">{d.label}: {d.status}</div>
       <div class="text-neutral-500 break-all">{d.error || d.log.at(-1) || ''}</div>
     </div>
   {/each}
   {#if error}<p class="text-neon-red text-xs">{error}</p>{/if}
-
-  <HubSearch />
 </div>

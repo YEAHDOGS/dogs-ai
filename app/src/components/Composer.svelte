@@ -5,7 +5,7 @@
   import SwapText from './SwapText.svelte'
   import { textIn } from '../lib/motion.js'
 
-  const INPUT = 'w-full bg-card border border-white/10 focus:border-neon-red/50 rounded-lg px-3 py-2 text-sm 2xl:text-lg outline-none'
+  const INPUT = 'w-full well rounded-lg px-3 py-2 text-sm 2xl:text-lg outline-none'
   const PROMPT_ROWS = 5
 
   let prompt = $state('')
@@ -30,6 +30,13 @@
     if (!store.startFrame || !imageParams.some(([k]) => k === 'start_image')) return
     values.start_image = store.startFrame.file
     store.startFrame = null
+  })
+
+  // A prompt picked in the Library's Prompts fills the prompt box.
+  $effect(() => {
+    if (store.draftPrompt === null) return
+    prompt = store.draftPrompt
+    store.draftPrompt = null
   })
 
   async function submit(/** @type {SubmitEvent} */ e) {
@@ -93,7 +100,7 @@
   </div>
 
   <button type="submit" disabled={!prompt.trim() || busy}
-    class="flex items-center justify-center gap-2 py-3 2xl:py-4 rounded-xl font-bold tracking-wide bg-neon-red hover:bg-neon-red/85 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+    class="flex items-center justify-center gap-2 py-3 2xl:py-4 rounded-xl font-bold tracking-wide licorice disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
     {#if busy}<LoaderCircle size={18} class="animate-spin" />{:else}<Sparkles size={18} />{/if}
     <SwapText text={busy ? 'Queuing…' : `Generate ${store.kind}`} />
   </button>

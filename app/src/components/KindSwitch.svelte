@@ -14,7 +14,7 @@
   }
 </script>
 
-<div class="switch relative grid grid-cols-3 p-1 rounded-xl bg-black/40 border border-white/5" role="tablist" aria-label="What to create" tabindex="-1" onkeydown={onKey} style="--i: {index}">
+<div class="switch relative grid grid-cols-3 p-1 rounded-xl well" role="tablist" aria-label="What to create" tabindex="-1" onkeydown={onKey} style="--i: {index}">
   <span class="pill" aria-hidden="true"></span>
   {#each KINDS as k (k.id)}
     {@const Icon = ICONS[k.id]}

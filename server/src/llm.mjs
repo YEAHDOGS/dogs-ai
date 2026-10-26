@@ -1,5 +1,6 @@
 // Local LLMs served by Ollama: what is installed, how big, each model's context window (the model's maximum and
 // the num_ctx actually configured), and what is loaded in memory right now.
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,13 @@ async function ollama(pathname, body) {
   const res = await fetch(OLLAMA_URL + pathname, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Ollama ${pathname} -> HTTP ${res.status}`);
   return res.json();
+}
+
+/** Start `ollama serve` when nothing answers (the Ollama tray app usually runs it already). */
+export async function ensureOllama() {
+  try { await ollama("/api/version"); return; } catch {}
+  spawn("ollama", ["serve"], { detached: true, windowsHide: true, stdio: "ignore" })
+    .on("error", (e) => console.error("[dogs] could not start Ollama:", e.message)).unref();
 }
 
 /** num_ctx and friends from the Modelfile "parameters" text block. */

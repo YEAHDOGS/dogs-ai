@@ -77,8 +77,10 @@ export async function listModels({ refresh = false } = {}) {
     // Companions that matched a family with no main file still count as claimed (they are not "unknown").
     if (FAMILIES.some((fam) => Object.values(fam.files).some((s) => s.match.test(f.name)))) claimed.add(f.id);
   }
+  // Ready models first; within that, the order of FAMILIES (FLUX leads), so FLUX is the default pick and shows first.
   const order = { ready: 0, broken: 1, incomplete: 2 };
-  models.sort((a, b) => (order[a.status] - order[b.status]) || a.label.localeCompare(b.label));
+  const famIndex = (m) => { const i = FAMILIES.findIndex((f) => f.id === m.family); return i < 0 ? FAMILIES.length : i; };
+  models.sort((a, b) => (order[a.status] - order[b.status]) || (famIndex(a) - famIndex(b)) || a.label.localeCompare(b.label));
   // Disk use of every distinct weight file found (each real file counted once, even if seen in several places).
   const present = files.filter((f) => !f.broken);
   const byLocation = {};
@@ -147,7 +149,16 @@ export function describeProblem(m) {
  * @returns {Promise<{ deleted: string[], freed: number, errors: string[] }>}
  */
 export async function deleteFiles(ids) {
-  const { files } = await scanFiles();
+  const { files, locations } = await scanFiles();
+  // Only ever delete inside the scanned model folders (after resolving links), so a planted symlink that
+  // points elsewhere can't turn a model cleanup into deleting an arbitrary file.
+  const roots = [];
+  for (const l of locations.filter((x) => x.exists)) roots.push(await fs.realpath(l.dir).catch(() => l.dir));
+  roots.push(await fs.realpath(LINKED_DIR).catch(() => LINKED_DIR));
+  const contained = async (p) => {
+    const real = await fs.realpath(path.dirname(p)).then((d) => path.join(d, path.basename(p)), () => null);
+    return !!real && roots.some((r) => real === r || real.startsWith(r + path.sep));
+  };
   const byId = new Map(files.map((f) => [f.id, f]));
   const out = { deleted: [], freed: 0, errors: [] };
   for (const id of ids) {
@@ -158,6 +169,7 @@ export async function deleteFiles(ids) {
     let realGone = !f.path;
     for (const t of targets) {
       try {
+        if (!(await contained(t))) { out.errors.push(`${t}: outside the model folders, not deleted`); continue; }
         const st = await fs.lstat(t);
         // A linked-dir entry with this name but different content belongs to another model: leave it.
         if (t.startsWith(LINKED_DIR) && f.size && st.size !== f.size && !st.isSymbolicLink()) continue;

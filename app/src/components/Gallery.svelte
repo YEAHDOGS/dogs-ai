@@ -32,7 +32,7 @@
         {:else if j.status === 'error' || j.status === 'cancelled'}
           <div class="aspect-square flex flex-col items-center justify-center gap-2 p-4 text-center text-xs 2xl:text-base {j.status === 'error' ? 'text-neon-red' : 'text-muted'}">
             <TriangleAlert size={22} />
-            <span class="break-words max-h-40 overflow-y-auto">{j.error || 'cancelled'}</span>
+            <span class="max-h-40 overflow-y-auto [overflow-wrap:anywhere] select-text" title={j.error || ''}>{j.error || 'cancelled'}</span>
           </div>
         {:else}
           <div class="aspect-square flex flex-col items-center justify-center gap-3 p-4">

@@ -99,8 +99,12 @@ async function runGraph(graph, timeoutMs = 15 * 60 * 1000) {
   throw new Error(`Timed out after ${timeoutMs / 1000}s waiting for ComfyUI prompt ${prompt_id}`);
 }
 
+// Every generated file lives in outputs/generated/image (ComfyUI writes it there); save_to gets a copy as well.
+const GENERATED_IMAGES = path.join(OUTPUTS, "generated", "image");
+const comfyPrefix = (name) => `generated/image/${name}`;
+
 async function saveImages(images, saveTo) {
-  const dir = path.resolve(saveTo || OUTPUTS);
+  const dir = path.resolve(saveTo || GENERATED_IMAGES);
   await mkdir(dir, { recursive: true });
   const out = [];
   for (const img of images) {
@@ -146,13 +150,13 @@ server.registerTool("generate_image", {
     steps: z.number().int().min(4).max(16).default(16).describe("4-16; 8 for drafts."),
     count: z.number().int().min(1).max(4).default(1).describe("Number of images (batch)."),
     seed: z.number().int().min(0).optional().describe("Omit for random."),
-    save_to: z.string().optional().describe("Folder to save into (e.g. ./assets). Default: dogs-ai/outputs."),
+    save_to: z.string().optional().describe("Folder to save into (e.g. ./assets). Default: dogs-ai/outputs/generated/image."),
     filename_prefix: z.string().regex(/^[\w-]+$/).default("flux3"),
   },
 }, async (a) => {
   try {
     const seed = a.seed ?? newSeed();
-    return await generate(textToImage({ ...a, seed }), a.save_to, seed);
+    return await generate(textToImage({ ...a, seed, filename_prefix: comfyPrefix(a.filename_prefix) }), a.save_to, seed);
   } catch (e) { return fail(e); }
 });
 
@@ -173,7 +177,7 @@ server.registerTool("edit_image", {
     const seed = a.seed ?? newSeed();
     const uploaded = [];
     for (const f of a.images) uploaded.push(await serial(async () => { await ensureComfy(); return uploadImage(f); }));
-    return await generate(imageEdit({ ...a, images: uploaded, seed }), a.save_to, seed);
+    return await generate(imageEdit({ ...a, images: uploaded, seed, filename_prefix: comfyPrefix(a.filename_prefix) }), a.save_to, seed);
   } catch (e) { return fail(e); }
 });
 

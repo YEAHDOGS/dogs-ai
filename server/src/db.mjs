@@ -3,9 +3,9 @@
 // All access goes through the async functions below and the SQL is plain SQLite, so moving to Cloudflare D1
 // (also SQLite, async API) means swapping only this file.
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readFileSync, renameSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, existsSync } from "node:fs";
 import path from "node:path";
-import { RUNTIME, OUTPUTS } from "./config.mjs";
+import { RUNTIME, OUTPUTS, GENERATED } from "./config.mjs";
 
 export const DB_PATH = path.join(RUNTIME, "dogs.db");
 const LEGACY_JSON = path.join(OUTPUTS, "jobs.json");
@@ -168,6 +168,9 @@ export async function deletePromptRow(id) {
   db.prepare("DELETE FROM prompts WHERE id = ?").run(id);
 }
 
+// Ids of the built-in prompts (prompts.mjs) start with this; clearing the database keeps them.
+export const BUILT_IN_PROMPT_PREFIX = "bench-";
+
 // Built-in prompts are added once (PRAGMA user_version marks it), so deleting one keeps it deleted.
 export function seedPromptsOnce(rows) {
   if (db.prepare("PRAGMA user_version").get().user_version >= 1) return;
@@ -260,8 +263,40 @@ export async function getJobRow(id) {
   return r ? fromRow(r) : null;
 }
 
+/** The job that produced an output file (outputs-relative path), if any. instr, not LIKE: file names contain "_". */
+export async function getJobByOutput(file) {
+  const r = db.prepare("SELECT * FROM jobs WHERE instr(outputs, :needle) > 0 ORDER BY created DESC LIMIT 1").get({ needle: JSON.stringify({ file }).slice(1, -1) });
+  return r ? fromRow(r) : null;
+}
+
 export async function deleteJobRow(id) {
   db.prepare("DELETE FROM jobs WHERE id = ?").run(id);
+}
+
+// ---------------------------------------------------------------- whole database
+
+const ALL_TABLES = ["messages", "chats", "character_media", "characters", "prompts", "jobs"];
+
+/**
+ * Empty every table (Settings > Clear database), except the built-in prompts, which only lose their use counts.
+ * Files in outputs/ stay on disk. Returns rows removed per table.
+ */
+export async function clearDatabase() {
+  const removed = {};
+  db.exec("BEGIN");
+  try {
+    for (const t of ALL_TABLES) {
+      const keep = t === "prompts" ? ` WHERE id NOT LIKE '${BUILT_IN_PROMPT_PREFIX}%'` : "";
+      removed[t] = Number(db.prepare(`DELETE FROM ${t}${keep}`).run().changes);
+    }
+    db.exec("UPDATE prompts SET uses = 0, last_used = NULL");
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  db.exec("VACUUM");
+  return removed;
 }
 
 // Jobs left queued/running by a crash or restart can never finish.
@@ -280,3 +315,48 @@ if (existsSync(LEGACY_JSON)) {
     console.error("[dogs] could not import jobs.json:", e.message);
   }
 }
+
+// One-time move of generated files from outputs/<kind>/ into outputs/generated/<kind>/. Only rows that point at a
+// file that actually moved are rewritten, so a file that is locked (and stays put) keeps working where it is.
+function moveIntoGenerated() {
+  const moved = new Map();
+  for (const kind of ["image", "video", "audio"]) {
+    const from = path.join(OUTPUTS, kind);
+    if (!existsSync(from)) continue;
+    const to = path.join(OUTPUTS, GENERATED, kind);
+    mkdirSync(to, { recursive: true });
+    for (const name of readdirSync(from)) {
+      if (existsSync(path.join(to, name))) continue;
+      try {
+        renameSync(path.join(from, name), path.join(to, name));
+        moved.set(`${kind}/${name}`, `${GENERATED}/${kind}/${name}`);
+      } catch (e) { console.error(`[dogs] could not move ${kind}/${name} into ${GENERATED}/:`, e.message); }
+    }
+    try { rmdirSync(from); } catch {} // only succeeds once it is empty
+  }
+  if (!moved.size) return;
+  const swap = (s) => {
+    for (const [a, b] of moved) s = s.split(`"${a}"`).join(`"${b}"`).split(`/files/${a}"`).join(`/files/${b}"`);
+    return s;
+  };
+  db.exec("BEGIN");
+  try {
+    const setJob = db.prepare("UPDATE jobs SET outputs = ?, params = ? WHERE id = ?");
+    for (const r of db.prepare("SELECT id, outputs, params FROM jobs").all()) {
+      const outputs = swap(r.outputs), params = swap(r.params);
+      if (outputs !== r.outputs || params !== r.params) setJob.run(outputs, params, r.id);
+    }
+    const setMedia = db.prepare("UPDATE character_media SET file = ? WHERE id = ?");
+    for (const r of db.prepare("SELECT id, file FROM character_media").all()) if (moved.has(r.file)) setMedia.run(moved.get(r.file), r.id);
+    db.exec("COMMIT");
+    console.error(`[dogs] moved ${moved.size} generated files into outputs/${GENERATED}/`);
+  } catch (e) {
+    db.exec("ROLLBACK");
+    // Put the files back so the history still matches them.
+    for (const [a, b] of moved) {
+      try { mkdirSync(path.dirname(path.join(OUTPUTS, a)), { recursive: true }); renameSync(path.join(OUTPUTS, b), path.join(OUTPUTS, a)); } catch {}
+    }
+    console.error("[dogs] could not update history for the moved files:", e.message);
+  }
+}
+moveIntoGenerated();

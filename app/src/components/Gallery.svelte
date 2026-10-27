@@ -3,6 +3,8 @@
   import { store } from '../lib/store.svelte.js'
   import { url } from '../lib/api.js'
   import Media from './Media.svelte'
+  import AnimateButton from './AnimateButton.svelte'
+  import Animations from './Animations.svelte'
   import { scale } from 'svelte/transition'
   import { flip } from 'svelte/animate'
   import { EASE, PAGE_MS } from '../lib/motion.js'
@@ -47,6 +49,14 @@
         <div class="p-2.5 2xl:p-4 text-[11px] 2xl:text-sm text-neutral-400 flex flex-col gap-0.5">
           <p class="line-clamp-2 text-neutral-200" title={j.prompt}>{j.prompt}</p>
           <p class="text-neutral-600 truncate">{j.modelLabel} · seed {j.seed} {elapsed(j) ? '· ' + elapsed(j) : ''}</p>
+          {#if j.status === 'done' && j.kind === 'image'}
+            {#each j.outputs as o (o.file)}
+              <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <AnimateButton file={o.file} url={o.url} label />
+                <Animations file={o.file} size="w-12 h-12 2xl:w-16 2xl:h-16" />
+              </div>
+            {/each}
+          {/if}
         </div>
       </article>
     {/each}

@@ -7,5 +7,5 @@ node_modules/
 models/*
 !models/.gitkeep
 
-# Packaged desktop apps (npm run dist / dist:dir)
+# Old Electron packages (desktop builds now land in app/src-tauri/target/, ignored there)
 build/

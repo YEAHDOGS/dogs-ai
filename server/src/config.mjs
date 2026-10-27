@@ -16,6 +16,8 @@ export const MODELS_DIR = path.resolve(env.DOGS_MODELS || path.join(REPO, "model
 export const LINKED_DIR = path.join(RUNTIME, "models", "linked");
 export const EXTRA_PATHS_YAML = path.join(RUNTIME, "extra_model_paths.yaml");
 export const OUTPUTS = path.resolve(env.DOGS_AI_OUTPUTS || path.join(REPO, "outputs"));
+// Every generated file lands in outputs/generated/<kind>/; outputs/ also holds uploads (inputs/, characters/).
+export const GENERATED = "generated";
 export const WORKFLOWS_DIR = path.join(REPO, "workflows");
 export const COMFY_URL = (env.COMFY_URL || `http://127.0.0.1:${STACK.comfyui.port}`).replace(/\/$/, "");
 export const OLLAMA_URL = (env.OLLAMA_URL || STACK.ollama.host).replace(/\/$/, "");

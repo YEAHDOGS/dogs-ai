@@ -34,6 +34,12 @@ class Store {
   /** Every finished output, newest first, for the Library. */
   media = $derived(this.jobs.filter((j) => j.status === 'done').flatMap((j) => j.outputs.map((o) => ({ ...o, job: j, kind: o.mime.split('/')[0] }))))
   active = $derived(this.jobs.filter((j) => !FINISHED.includes(j.status)))
+  /** Video jobs made from an image, keyed by that image's outputs path (their params.start_image), newest first. */
+  animations = $derived(this.jobs.reduce((/** @type {Map<string, any[]>} */ m, j) => {
+    const src = j.kind === 'video' && j.params?.start_image
+    if (src) m.set(src, [...(m.get(src) || []), j])
+    return m
+  }, new Map()))
 
   #unsub = () => {}
   #timer = 0
@@ -136,6 +142,20 @@ class Store {
     const job = await api('/api/generate', { method: 'POST', json: { ...req, client: 'app' } })
     this.#onJob(job)
     return job
+  }
+
+  /** One-click image to video: the server picks the model, size and prompt. @param {string} file @param {string} [motion] */
+  async animate(file, motion = '') {
+    const job = await api('/api/animate', { method: 'POST', json: { image: file, motion, client: 'app' } })
+    this.#onJob(job)
+    return job
+  }
+
+  /** Open Create → Video with this image as the start frame, for full control over the settings. @param {{ file: string, url: string }} img */
+  openInCreate(img) {
+    this.startFrame = { file: img.file, url: img.url }
+    this.setKind('video')
+    this.setView('create')
   }
 
   /** @param {string} id */

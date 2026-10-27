@@ -6,7 +6,8 @@ import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { API_HOST, API_PORT, API_KEY, OUTPUTS, REPO, COMFY_URL } from "./config.mjs";
 import { listModels, deleteFiles, ensureExtraPaths } from "./models.mjs";
-import { submit, listJobs, getJob, cancel, removeJob, waitFor, events as jobEvents, mimeOf } from "./jobs.mjs";
+import { submit, animate, listJobs, getJob, cancel, removeJob, waitFor, activeJobs, events as jobEvents, mimeOf } from "./jobs.mjs";
+import { clearDatabase } from "./db.mjs";
 import { startDownload, startOllamaInstall, listDownloads, getDownload, events as dlEvents } from "./downloads.mjs";
 import { comfyUp, comfyStats, startComfy, stopComfy, freeComfy, comfyStarting, startError } from "./comfy.mjs";
 import { searchModels, repoFiles, missingRoles, ollamaName } from "./hub.mjs";
@@ -23,6 +24,7 @@ const ENDPOINTS = [
   ["GET", "/api/health", "ComfyUI status, GPU and queue"],
   ["GET", "/api/models?kind=image|video|audio&refresh=1", "Installed models (ready / incomplete / broken), scanned locations, unrecognized files"],
   ["POST", "/api/generate", "{ kind | model, prompt, ...params, seed?, wait? } -> job. With wait:true the response is the finished job"],
+  ["POST", "/api/animate", "{ image: outputs path | data: URL, motion?, model?, seconds?, seed?, wait? } -> video job starting from that image"],
   ["GET", "/api/jobs?limit=&kind=&q=&status=", "Jobs newest first (q searches prompts), from the SQLite history"],
   ["GET", "/api/jobs/:id", "One job; outputs[].url is downloadable"],
   ["DELETE", "/api/jobs/:id?files=1", "Cancel a queued/running job, or delete a finished one from history (files=1 also deletes its files)"],
@@ -30,6 +32,7 @@ const ENDPOINTS = [
   ["GET", "/api/storage?refresh=1", "Every folder this stack uses on disk, with sizes (hard links counted once)"],
   ["POST", "/api/storage/:id/open", "Open that folder in Explorer / Finder"],
   ["POST", "/api/storage/:id/clear", "Empty a cache folder (only cache places can be cleared)"],
+  ["POST", "/api/database/clear", "Empty the history database: jobs, your prompts, chats, characters (built-in prompts and files in outputs/ stay). Refused while jobs run"],
   ["GET", "/api/characters", "Characters (with media counts)"],
   ["POST", "/api/characters", "{ name?, bio?, lists? } -> new character"],
   ["GET", "/api/characters/:id", "A character with its media"],
@@ -91,11 +94,11 @@ function authorized(req, url) {
   return keyInUrlOk && sameKey(url.searchParams.get("key"));
 }
 
-// Browsers may only call the API from the app itself (served here, the Electron shell, the Vite dev server)
+// Browsers may only call the API from the app itself (served here, the Tauri shell, the Vite dev server)
 // or origins listed in DOGS_ORIGINS. Without this, any website open on this machine could drive the local
 // engine. Requests with no Origin (curl, the CLI, server-to-server callers) are unaffected.
 const ALLOWED_ORIGINS = new Set([
-  "capacitor-electron://-",
+  "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost",
   "http://localhost:5173", "http://127.0.0.1:5173",
   ...(process.env.DOGS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
 ]);
@@ -170,6 +173,12 @@ async function route(req, res, url) {
     if (body.wait) return send(res, 200, await waitFor(job));
     return send(res, 202, job);
   }
+  if (p === "/api/animate" && m === "POST") {
+    const body = await readBody(req);
+    const job = await animate(body);
+    if (body.wait) return send(res, 200, await waitFor(job));
+    return send(res, 202, job);
+  }
   if (p === "/api/jobs" && m === "GET") {
     const s = url.searchParams;
     return send(res, 200, await listJobs({ limit: Math.min(1000, Number(s.get("limit") || 100)), kind: s.get("kind") || undefined, q: s.get("q") || undefined, status: s.get("status") || undefined }));
@@ -195,6 +204,10 @@ async function route(req, res, url) {
   if (p === "/api/storage" && m === "GET") return send(res, 200, await storage.storageReport({ refresh: url.searchParams.has("refresh") }));
   const sm = /^\/api\/storage\/([\w-]+)\/(open|clear)$/.exec(p);
   if (sm && m === "POST") return send(res, 200, sm[2] === "open" ? await storage.openPlace(sm[1]) : await storage.clearPlace(sm[1]));
+  if (p === "/api/database/clear" && m === "POST") {
+    if (activeJobs()) return send(res, 409, { error: "jobs are still queued or running; wait for them or cancel them first" });
+    return send(res, 200, { removed: await clearDatabase() });
+  }
   if (p === "/api/characters" && m === "GET") return send(res, 200, await characters.listCharacters());
   if (p === "/api/characters" && m === "POST") return send(res, 201, await characters.createCharacter(await readBody(req)));
   const chm = /^\/api\/characters\/([\w-]+)(?:\/media(?:\/([\w-]+))?)?$/.exec(p);

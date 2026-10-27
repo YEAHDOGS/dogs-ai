@@ -3,6 +3,7 @@
   import { store } from '../lib/store.svelte.js'
   import { url } from '../lib/api.js'
   import Media from './Media.svelte'
+  import AnimateButton from './AnimateButton.svelte'
   import { fade, scale } from 'svelte/transition'
   import { EASE, PAGE_MS } from '../lib/motion.js'
 
@@ -19,6 +20,7 @@
     <div class="flex items-center justify-between gap-3">
       <p class="text-xs sm:text-sm 2xl:text-lg text-neutral-300 line-clamp-2 select-text">{p.job.prompt}</p>
       <div class="flex gap-2 shrink-0">
+        {#if p.output.mime.startsWith('image')}<AnimateButton file={p.output.file} url={p.output.url} label onQueued={close} />{/if}
         <button class={BTN} onclick={() => navigator.clipboard?.writeText(p.job.prompt)}><Copy size={14} /> Prompt</button>
         <a class={BTN} href={url(p.output.url, true)} download><Download size={14} /> Save</a>
         <button class={BTN} onclick={close} aria-label="Close"><X size={14} /></button>

@@ -7,8 +7,8 @@ import { EventEmitter } from "node:events";
 import { FAMILIES, normalizeParams } from "./families.mjs";
 import { getModel, listModels, prepareModel, ensureExtraPaths, describeProblem } from "./models.mjs";
 import { startComfy, stopComfy, comfyUp, runGraph, collectOutputs, freeComfy, unloadLlm, nodeTypes, interrupt, uploadImage } from "./comfy.mjs";
-import { OUTPUTS, WORKFLOWS_DIR, VRAM_HANDOFF } from "./config.mjs";
-import { saveJob, queryJobs, getJobRow, deleteJobRow } from "./db.mjs";
+import { OUTPUTS, GENERATED, WORKFLOWS_DIR, VRAM_HANDOFF } from "./config.mjs";
+import { saveJob, queryJobs, getJobRow, getJobByOutput, deleteJobRow } from "./db.mjs";
 import { recordUse } from "./prompts.mjs";
 
 export const events = new EventEmitter();
@@ -36,6 +36,9 @@ export async function listJobs({ limit = 100, kind, q, status } = {}) {
   const rows = await queryJobs({ limit, kind, q, status });
   return rows.map((r) => live.get(r.id) || r);
 }
+/** Queued + running jobs. */
+export const activeJobs = () => live.size;
+
 export async function getJob(id) { return live.get(id) || (await getJobRow(id)); }
 
 /** Remove a job from history; with files: true also delete its output files. */
@@ -66,6 +69,11 @@ export async function submit(req) {
     if (spec.type === "image" && req[k]) req = { ...req, [k]: await storeInputImage(req[k], `${id}_${k}`) };
   }
   if (req.image && "start_image" in model.params && !req.start_image) req = { ...req, start_image: await storeInputImage(req.image, `${id}_start_image`) };
+  // A start frame sets the video's shape (the model would otherwise crop it): same aspect, the model's default area.
+  if (req.start_image && req.width == null && req.height == null && model.params.width && model.params.height) {
+    const d = model.params;
+    req = { ...req, ...(await fitToImage(req.start_image, d.width, d.height, d.width.default * d.height.default)) };
+  }
   const params = normalizeParams(model.params, req);
   const job = {
     id, kind: model.kind, model: model.id, modelLabel: model.label, prompt,
@@ -106,6 +114,75 @@ async function storeInputImage(value, name) {
   if (!abs.startsWith(OUTPUTS + path.sep)) throw badRequest("image must be a data: URL or a file under outputs/");
   try { await fs.access(abs); } catch { throw badRequest(`image not found: ${rel}`); }
   return rel;
+}
+
+/** Pixel size of a PNG, JPEG or WebP from its header; null if unrecognized. */
+export function imageSize(b) {
+  if (b.length > 24 && b.readUInt32BE(0) === 0x89504e47) return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  if (b.length > 30 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") {
+    const chunk = b.toString("ascii", 12, 16);
+    if (chunk === "VP8X") return { width: 1 + b.readUIntLE(24, 3), height: 1 + b.readUIntLE(27, 3) };
+    if (chunk === "VP8L") { const v = b.readUInt32LE(21); return { width: 1 + (v & 0x3fff), height: 1 + ((v >> 14) & 0x3fff) }; }
+    if (chunk === "VP8 ") return { width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff };
+  }
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    // Walk JPEG segments to the first start-of-frame marker (C0-CF, except C4 DHT, C8 JPG, CC DAC).
+    for (let i = 2; i + 9 < b.length;) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const marker = b[i + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+      i += 2 + b.readUInt16BE(i + 2);
+    }
+  }
+  return null;
+}
+
+/**
+ * Width/height for a video that starts from this image (outputs-relative path): the image's aspect ratio at
+ * about `area` pixels, snapped to the params' step and clamped to their range. {} if the size can't be read.
+ */
+async function fitToImage(rel, wSpec, hSpec, area) {
+  const size = imageSize(await fs.readFile(path.join(OUTPUTS, rel)));
+  if (!size?.width || !size?.height) return {};
+  const aspect = size.width / size.height;
+  const snap = (v, s) => Math.min(s.max, Math.max(s.min, Math.round(v / s.step) * s.step));
+  return { width: snap(Math.sqrt(area * aspect), wSpec), height: snap(Math.sqrt(area / aspect), hSpec) };
+}
+
+// One-click "Animate": small enough to finish in a few minutes on a 6-8 GB GPU.
+const ANIMATE_AREA = 640 * 640;
+const ANIMATE_MOTION = "subtle natural motion, gentle slow camera push-in, cinematic";
+
+/**
+ * Turn an image into a video with sensible defaults: { image, motion?, model?, seconds?, seed?, ...params }.
+ * `image` is a path under outputs/ (a generated image) or a data: URL. The prompt is the motion text plus the
+ * prompt the image was made with, when it came from a job here. The video job's params.start_image links it
+ * back to the image.
+ */
+export async function animate(req) {
+  if (!req.image) throw badRequest("image is required (a path under outputs/ or a data: URL)");
+  const model = req.model ? await pickModel({ model: req.model, kind: "video" }) : await pickVideoModel();
+  if (!("start_image" in model.params)) throw badRequest(`${model.label} can't start from an image`);
+  const isData = String(req.image).startsWith("data:");
+  const rel = await storeInputImage(req.image, `${randomUUID().slice(0, 12)}_animate`);
+  const source = isData ? null : await getJobByOutput(rel);
+  const motion = String(req.motion || "").trim();
+  const prompt = [motion || ANIMATE_MOTION, source?.prompt].filter(Boolean).join(". ");
+  const { image, motion: _m, ...rest } = req;
+  const size = rest.width == null && rest.height == null && model.params.width
+    ? await fitToImage(rel, model.params.width, model.params.height, Math.min(ANIMATE_AREA, model.params.width.default * model.params.height.default))
+    : {};
+  return submit({ ...rest, ...size, model: model.id, prompt, start_image: rel });
+}
+
+// Wan 2.2 TI2V first (better motion), then any other ready video model that takes a start frame.
+const VIDEO_PREFERENCE = ["wan2.2-ti2v-5b", "ltx-video-2b"];
+async function pickVideoModel() {
+  const ready = (await listModels()).models.filter((m) => m.kind === "video" && m.status === "ready" && "start_image" in m.params);
+  const rank = (m) => { const i = VIDEO_PREFERENCE.indexOf(m.family); return i < 0 ? VIDEO_PREFERENCE.length : i; };
+  const m = ready.sort((a, b) => rank(a) - rank(b))[0];
+  if (!m) throw badRequest("no video model that can animate an image is installed: run `dogs download wan2.2-ti2v-5b` (or ltx-video-2b)");
+  return m;
 }
 
 async function pickModel(req) {
@@ -160,7 +237,7 @@ async function run(job, model) {
 }
 
 async function buildGraph(job, model, files) {
-  const prefix = `${model.kind}/${(model.family || "dogs").replace(/[^\w.-]/g, "_")}`;
+  const prefix = `${GENERATED}/${model.kind}/${(model.family || "dogs").replace(/[^\w.-]/g, "_")}`;
   if (model.custom) {
     const raw = JSON.parse(await fs.readFile(path.join(WORKFLOWS_DIR, model.file), "utf8"));
     delete raw.dogs;

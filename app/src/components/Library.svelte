@@ -33,13 +33,6 @@
     const t = setInterval(() => store.loadLlm().catch(() => {}), LLM_POLL_MS)
     return () => clearInterval(t)
   })
-
-  // Animate: open Create on Video with this image as the start frame.
-  function animate(/** @type {any} */ it) {
-    store.startFrame = { file: it.file, url: it.url }
-    store.setKind('video')
-    store.setView('create')
-  }
 </script>
 
 <div class="flex flex-col gap-3 2xl:gap-5 max-w-7xl 2xl:max-w-none mx-auto w-full">
@@ -76,7 +69,7 @@
 
   <Section title="Generated" bind:open={generatedOpen}>
     {#snippet summary()}{store.media.length} items{/snippet}
-    <Generated onConvert={(it) => (converting = it)} onAnimate={animate} />
+    <Generated onConvert={(it) => (converting = it)} />
   </Section>
 </div>
 

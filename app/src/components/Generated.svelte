@@ -1,14 +1,16 @@
 <script>
-  import { Image, Clapperboard, AudioLines, Search, Repeat, Download, Trash2, Film, Copy } from '@lucide/svelte'
+  import { Image, Clapperboard, AudioLines, Search, Repeat, Download, Trash2, Copy } from '@lucide/svelte'
   import { slide } from 'svelte/transition'
   import { flip } from 'svelte/animate'
   import { store } from '../lib/store.svelte.js'
   import { url } from '../lib/api.js'
   import { EASE, PAGE_MS } from '../lib/motion.js'
   import Confirm from './Confirm.svelte'
+  import AnimateButton from './AnimateButton.svelte'
+  import Animations from './Animations.svelte'
 
-  /** @type {{ onConvert: (item: any) => void, onAnimate: (item: any) => void }} */
-  let { onConvert, onAnimate } = $props()
+  /** @type {{ onConvert: (item: any) => void }} */
+  let { onConvert } = $props()
 
   const FILTERS = [{ id: '', label: 'All' }, { id: 'image', label: 'Images' }, { id: 'video', label: 'Videos' }, { id: 'audio', label: 'Audio' }]
   const ICONS = { image: Image, video: Clapperboard, audio: AudioLines }
@@ -82,16 +84,15 @@
               <Icon size={26} class="text-neutral-400" />
             {/if}
           </button>
+          {#if it.kind === 'image'}<Animations file={it.file} />{/if}
           <div class="flex-1 min-w-0 flex flex-col gap-1">
             <p class="text-sm 2xl:text-lg text-neutral-100 line-clamp-2 select-text" title={it.job.prompt}>{it.job.prompt}</p>
             <p class="text-[11px] 2xl:text-sm text-neutral-500 truncate" title={fullDate(it.job.created)}>
               <Icon size={11} class="inline -mt-0.5" /> {time(it.job.created)} · {it.job.modelLabel} · {ext(it.file)} · seed {it.job.seed}
             </p>
-            <div class="flex gap-1 mt-auto">
+            <div class="flex items-center gap-1 mt-auto">
+              {#if it.kind === 'image'}<AnimateButton file={it.file} url={it.url} />{/if}
               <button class={ACTION} title="Convert / export" aria-label="Convert" onclick={() => onConvert(it)}><Repeat size={15} /></button>
-              {#if it.kind === 'image'}
-                <button class={ACTION} title="Animate: make a video starting from this image" aria-label="Animate" onclick={() => onAnimate(it)}><Film size={15} /></button>
-              {/if}
               <button class={ACTION} title="Save original" aria-label="Save" onclick={() => save(it)}><Download size={15} /></button>
               <button class={ACTION} title="Copy prompt" aria-label="Copy prompt" onclick={() => navigator.clipboard?.writeText(it.job.prompt)}><Copy size={15} /></button>
               <button class="{ACTION} hover:!bg-neon-red ml-auto" title="Delete" aria-label="Delete" onclick={() => (pending = it)}><Trash2 size={15} /></button>

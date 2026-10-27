@@ -7,6 +7,7 @@
   import { store } from '../lib/store.svelte.js'
   import { chat } from '../lib/chat.svelte.js'
   import { EASE, PAGE_MS } from '../lib/motion.js'
+  import { portal } from '../lib/portal.js'
   import Confirm from './Confirm.svelte'
 
   /** @type {{ id: string, onClose: () => void, onDeleted: () => void }} */
@@ -145,6 +146,8 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && !confirmDelete && !picking && close()} />
 
+<!-- On <body>: the Library section's glass would otherwise clip this fixed-position dialog to the section. -->
+<div class="contents" {@attach portal}>
 <div class="scrim z-50 flex items-end md:items-center justify-center md:p-6" role="dialog" aria-modal="true" aria-label="Character"
   transition:fade={{ duration: PAGE_MS / 2 }}
   ondragenter={(e) => { e.preventDefault(); dragging++ }} ondragleave={() => dragging--} ondragover={(e) => e.preventDefault()} ondrop={drop}>
@@ -286,3 +289,4 @@
   <Confirm title="Delete {c.name}?" message="Deletes the character, its lists, and files you uploaded to it. Generated media stays in your Library."
     onConfirm={remove} onCancel={() => (confirmDelete = false)} />
 {/if}
+</div>

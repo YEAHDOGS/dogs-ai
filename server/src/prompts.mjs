@@ -2,7 +2,7 @@
 // records its prompt here (new ones land in "other", or "motion"/"sound" for video/audio). Chat messages only
 // become prompts when saved on purpose.
 import { randomUUID } from "node:crypto";
-import { listPrompts, getPrompt, getPromptByText, savePrompt, deletePromptRow, seedPromptsOnce } from "./db.mjs";
+import { listPrompts, getPrompt, getPromptByText, savePrompt, deletePromptRow, seedPromptsOnce, BUILT_IN_PROMPT_PREFIX } from "./db.mjs";
 
 export { listPrompts };
 
@@ -92,5 +92,5 @@ const SEEDS = [
 ];
 
 seedPromptsOnce(SEEDS.map(([title, cat, text, notes], i) => ({
-  id: `bench-${String(i + 1).padStart(2, "0")}`, text, title, category: cat, kind: "image", notes: BENCH + notes, created: Date.now() - i,
+  id: `${BUILT_IN_PROMPT_PREFIX}${String(i + 1).padStart(2, "0")}`, text, title, category: cat, kind: "image", notes: BENCH + notes, created: Date.now() - i,
 })));

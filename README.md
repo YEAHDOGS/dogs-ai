@@ -1,7 +1,7 @@
 # dogs-ai: local image, video and audio generation
 
 Everything runs on your own machine: models run in **ComfyUI** on your GPU, the **`dogs` CLI** and **API** drive
-it, and the **DOGS AI** app (Svelte + Tailwind in a Capacitor/Electron shell) puts it behind a prompt box. The
+it, and the **DOGS AI** app (Svelte + Tailwind in a Tauri shell) puts it behind a prompt box. The
 same API is what an outside assistant calls later ("I need an image of skyscrapers" -> PNG back).
 
 ```
@@ -17,7 +17,7 @@ same API is what an outside assistant calls later ("I need an image of skyscrape
 | Piece | What | Where |
 |---|---|---|
 | `dogs` CLI + API | Scans models, queues jobs, talks to ComfyUI, downloads from Hugging Face | `server/` (Node 22+, no dependencies) |
-| DOGS AI app | Prompt, pick a model, see results; desktop app or web page | `app/` (Svelte 5, Tailwind 4, Capacitor 8 + Electron) |
+| DOGS AI app | Prompt, pick a model, see results; desktop app or web page | `app/` (Svelte 5, Tailwind 4, Tauri 2) |
 | ComfyUI `v0.42.5` | Runs the models | `runtime/ComfyUI` (git-ignored) |
 | opencode + Qwen3.5 (Ollama) | Agentic coding with local models (see [Coding agent](#coding-agent-opencode)) | global, `opencode/`, `mcp/comfy-mcp` |
 
@@ -37,7 +37,7 @@ Already have the repo and ComfyUI? Just the new parts:
 
 ```powershell
 npm link                 # puts `dogs` on your PATH
-npm run app:install      # app + Electron shell dependencies
+npm run app:install      # app + Tauri CLI (the desktop app also needs Rust, see below)
 ```
 
 ## Generate an image from one command
@@ -46,7 +46,7 @@ npm run app:install      # app + Electron shell dependencies
 dogs gen image "skyscrapers at dusk, wet streets reflecting neon"
 ```
 
-It prints the path of the PNG (in `outputs\image\`). ComfyUI starts by itself on the first run (about 30 s), and
+It prints the path of the PNG (in `outputs\generated\image\`). ComfyUI starts by itself on the first run (about 30 s), and
 the first image takes longer while the model loads. More:
 
 ```powershell
@@ -59,17 +59,36 @@ dogs gen image "..." --model "flux3-klein:flux3-image-klein-int8-convrot.safeten
 Any model parameter works as a `--flag` (see `dogs models --json` for each model's `params`). If `dogs serve` is
 running, `dogs gen` queues through it (so the app sees the job too), otherwise it runs in-process.
 
-### Image to video
+### Image to video (Animate)
 
-Give a video model a start frame and it animates that picture:
+Any image can become a short video in one click. In the app, every generated image (in the Library, under
+results in Create, and in the full-screen view) has an **Animate** button. Click it and the video renders right
+next to the image, with a progress ring while it works. The caret beside it opens an optional **motion prompt**
+("hair blowing in the wind, slow zoom out") and a link to Create → Video for every setting.
+
+From a terminal or another tool:
 
 ```powershell
-dogs gen video "the camera slowly pushes in, neon flickers, rain falls" --image .\outputs\image\flux3-klein_00001_.png --seconds 3
+dogs animate .\outputs\generated\image\flux3-klein_00001_.png                      # one step, sensible defaults
+dogs animate .\photo.jpg "the camera slowly pushes in, rain falls" --seconds 3     # any image, with a motion prompt
+curl -s http://127.0.0.1:8787/api/animate -H "content-type: application/json" -d '{"image":"generated/image/flux3-klein_00001_.png","motion":"slow zoom out","wait":true}'
 ```
 
-Both video families take one (Wan 2.2 TI2V 5B and LTX-Video). In the app: Create → Video has a **Start frame**
-drop zone, and every image in the Library has an **Animate** button that sends it there. Over the API, pass
-`"start_image"` as a `data:image/png;base64,...` URL or a path under `outputs/`.
+Animate picks the installed video model that takes a start frame (Wan 2.2 TI2V 5B first, then LTX-Video),
+matches the image's aspect ratio at about 640×640 pixels, 2 seconds, and uses the motion text plus the prompt the
+image was made with. The video job records the image as `params.start_image`, which is how the app shows it next
+to the image. `image` is a path under `outputs/` or a `data:image/...;base64,` URL. Any video parameter
+(`seconds`, `steps`, `width`, ...) can be passed to override the defaults.
+
+**Model setup:** Wan 2.2 TI2V 5B is the default (`dogs download wan2.2-ti2v-5b`, 16.9 GB; LTX-Video also works).
+On an RTX 4050 6 GB / 32 GB RAM laptop a one-click Animate (640×640, 2 s, 20 steps) takes a few minutes. Wan loads
+its weights as **fp8** by default (`weights` parameter, `fp16` for full precision): in fp16 the model plus its
+text encoder stage about 17 GB in system RAM, which ran Windows out of memory on a 32 GB machine **without a
+page file** and crashed ComfyUI mid-render. With fp16, or on smaller machines, keep a system-managed page file.
+
+The longer form still works: `dogs gen video "<prompt>" --image photo.png`, Create → Video's **Start frame**
+drop zone, or `"start_image"` on `/api/generate`. With a start frame and no width/height given, the video takes
+the image's aspect ratio.
 
 ## The CLI
 
@@ -86,6 +105,7 @@ dogs hf search [words] --kind image         search Hugging Face (also --sort lik
 dogs hf files <org/repo>                    weight files in a repo, with sizes and links
 dogs hf <anything>                          straight to the hf CLI: dogs hf auth login, dogs hf cache ls, ...
 dogs gen <image|video|audio> "<prompt>"     generate
+dogs animate <image> ["motion prompt"]      turn an image into a short video (see Image to video)
 dogs jobs                                   recent generations and their files
 dogs comfy start|stop|restart|status        the ComfyUI process
 dogs comfy add-node gguf                    ComfyUI-GGUF, needed for .gguf weights
@@ -135,7 +155,7 @@ its size, and a direct link. `dogs download <family>` fetches just those files.
 |---|---|---|---|
 | `flux3-klein` | image | 10.3 GB | FLUX.3 Image Klein. Gated: accept the license on Hugging Face first |
 | `qwen-image-2.1` | image | 16.1 GB | Qwen-Image 2.1. `.gguf` quants need `dogs comfy add-node gguf` |
-| `wan2.2-ti2v-5b` | video | 16.9 GB | Wan 2.2 5B, 720p/24 fps. Slow on small GPUs |
+| `wan2.2-ti2v-5b` | video | 16.9 GB | Wan 2.2 5B, text or image to video, 720p/24 fps. Default for Animate. Loads as fp8 |
 | `ltx-video-2b` | video | 13.3 GB | LTX-Video 2B, smaller and faster |
 | `ace-step-1.5` | audio | 9.3 GB | ACE-Step 1.5 songs/instrumentals, optional lyrics |
 | `stable-audio-open` | audio | 5.4 GB | Stable Audio Open: sound effects and loops up to 47 s |
@@ -173,7 +193,8 @@ Two tabs:
     expand. Hover a tile to delete it. The warning lists the exact files and keeps any file another model
     still uses.
   - **Generated**: everything you've made, newest first, grouped by day, with time, prompt, model and seed.
-    Search prompts, filter by kind, and **Convert**, **Animate** (images), save, copy the prompt, or delete.
+    Search prompts, filter by kind, and **Convert**, **Animate** (images: one click, videos appear next to the
+    image), save, copy the prompt, or delete.
 
 **Converter** (Library → Convert) runs entirely in the app, with no upload and no server work:
 
@@ -187,8 +208,8 @@ Target file size searches image quality (then dimensions) or sets the bitrate fr
 lands just under it. If the target is below what the encoder allows (Windows' AAC needs 96 kbps or more,
 for example), it gives you the smallest possible file and says so. Images go through the canvas encoder;
 audio and video through [Mediabunny](https://mediabunny.dev) (WebCodecs), which works the same in a
-browser, Electron and Capacitor's Android/iOS WebViews. Saving uses the browser download (Electron shows a
-Save dialog). A future Android/iOS build would save through `@capacitor/filesystem` instead.
+browser and the desktop app's webview. Saving uses the browser download; the desktop app shows the system
+Save dialog.
 
 ### Why there is an engine (server)
 
@@ -201,45 +222,51 @@ when it opens and restarts it if it stops, so you never start it by hand. While 
 
 Generation history (prompt, model, parameters, seed, timestamps, output files) lives in **SQLite** at
 `runtime/dogs.db`, through Node's built-in `node:sqlite` (no dependency, no database server; also works on a
-Raspberry Pi). Files stay in `outputs/`. All database access is in `server/src/db.mjs` with plain SQL, so a
+Raspberry Pi). Every generated file (app, CLI, API and the opencode `/image` tools) is a plain file in
+`outputs/generated/<image|video|audio>/` in this project folder; `outputs/inputs/` holds uploaded start frames and
+`outputs/characters/` character uploads. Files from older versions in `outputs/<kind>/` are moved there (and
+their history updated) the next time the engine starts. All database access is in `server/src/db.mjs` with plain SQL, so a
 later move to Cloudflare Workers + D1 (also SQLite) swaps that one file, and `outputs/` maps to R2. There is no
 ORM; the schema is one table.
 
 | How | Command |
 |---|---|
-| Desktop window (dev) | `npm run desktop` (or `dogs app`) |
+| Desktop window (dev, hot reload) | `npm run desktop` (or `dogs app`) |
 | In a browser, served by the API | `npm run web`, then open <http://127.0.0.1:8787> |
 | In a browser, hot reload | `dogs serve` in one terminal, `npm --prefix app run dev` in another |
 
 The desktop app starts `dogs serve` itself if nothing is listening on port 8787. Settings (gear icon) point
 it at another machine's API, with an API key if that server has one.
 
-### Build a Windows .exe / installer
+### Build the desktop app
 
-Run these on Windows, from the repo root:
+The desktop app is a [Tauri 2](https://tauri.app) shell, so building it needs Rust as well as Node:
+
+- **Windows:** [rustup](https://rustup.rs) plus the MSVC C++ build tools ("Desktop development with C++" in the
+  Visual Studio Build Tools). WebView2 ships with Windows 10/11.
+- **macOS:** rustup plus the Xcode command line tools (`xcode-select --install`).
+- **Linux:** rustup plus `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev` (Debian/Ubuntu names).
+
+Then, from the repo root:
 
 ```powershell
 npm run app:install     # once
-npm run dist            # -> build\
+npm run dist            # -> app\src-tauri\target\release\bundle\
 ```
 
 | Output | What |
 |---|---|
-| `DOGS-AI-Setup-<version>.exe` | Installer. Asks for admin and installs **per machine** into `C:\Program Files\DOGS AI\` (folder changeable), with Start menu and desktop shortcuts and an uninstaller |
-| `DOGS-AI-<version>-portable.exe` | Single portable .exe, no install |
-| `win-unpacked\DOGS AI.exe` | The unpacked app folder (also from `npm run dist:dir`, which is faster) |
+| `bundle\nsis\DOGS AI_<version>_x64-setup.exe` | Installer. Asks for admin and installs **per machine** into `C:\Program Files\DOGS AI\`, with a Start menu shortcut and an uninstaller |
+| `bundle\msi\DOGS AI_<version>_x64_en-US.msi` | The same as an MSI |
+| `target\release\dogs-ai.exe` | The bare app, no install (also from `npm run dist:dir`, which is faster) |
 
-### Build a Mac .app / .dmg
+On a Mac the same command makes `bundle/dmg/DOGS AI_<version>_aarch64.dmg` and `bundle/macos/DOGS AI.app`
+(Apple's tools are required, so it can't be cross-built from Windows). Open the .dmg and drag **DOGS AI** to
+**Applications**. The build is not signed, so the first launch needs right-click > **Open** (or
+`xattr -cr "/Applications/DOGS AI.app"`). On Linux it makes an AppImage and a .deb.
 
-Run on a Mac (Apple's tools are required, so it can't be cross-built from Windows):
-
-```bash
-npm run app:install
-npm run dist            # -> build/DOGS AI-<version>.dmg and a .zip of DOGS AI.app
-```
-
-Open the .dmg and drag **DOGS AI** to **Applications**. The build is not signed, so the first launch needs
-right-click > **Open** (or `xattr -cr "/Applications/DOGS AI.app"`). On Linux the same command makes an AppImage.
+The engine is Node, which the desktop app does not include: it uses the Node in the `dogs` CLI archive
+(`node/`), else the one on your PATH.
 
 Nothing here runs in CI on purpose: builds stay local, and nothing is uploaded (`publish` is off).
 
@@ -283,9 +310,9 @@ frees VRAM afterwards (`VRAM_HANDOFF=0` turns that off); `dogs` does the same.
 ```
 install.ps1, stack.json     installer and pinned versions
 server/                     dogs CLI (bin/dogs.mjs) and API (src/): scan, families, comfy, jobs, db, llm, hub, api
-app/                        DOGS AI app: src/ (Svelte), electron/ (Capacitor Electron shell + electron-builder)
+app/                        DOGS AI app: src/ (Svelte), src-tauri/ (Tauri desktop shell, Rust)
 workflows/                  your own ComfyUI API-format workflows (optional)
 models/                     drop models here (git-ignored)
 mcp/comfy-mcp, opencode/, ollama/, scripts/   coding agent setup and PowerShell helpers
-runtime/, outputs/          ComfyUI, linked models, generated files (git-ignored)
+runtime/, outputs/          ComfyUI, linked models, database; outputs/generated/ has every generated file (git-ignored)
 ```

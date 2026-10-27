@@ -25,6 +25,9 @@ Usage:
   dogs gen <image|video|audio> "<prompt>" [--model <id>] [--<param> <value> ...] [--seed n] [--out dir]
                                               Generate and print the output file paths
   dogs gen video "<prompt>" --image photo.png Image to video: animate photo.png (it becomes the first frame)
+  dogs animate <image> ["motion prompt"] [--seconds n] [--model <id>] [--out dir]
+                                              One-step image to video: picks the video model, matches the
+                                              image's shape, and reuses its prompt if it was generated here
   dogs jobs                                   Recent generations
   dogs comfy start|stop|restart|status        Control the ComfyUI server
   dogs comfy add-node gguf                    Install the ComfyUI-GGUF node (for .gguf weights)
@@ -45,6 +48,7 @@ const COMMAND_ALIASES = {
   m: "models", ls: "models", list: "models",
   s: "serve", server: "serve", start: "serve", api: "serve",
   j: "jobs", history: "jobs", h: "jobs",
+  i2v: "animate", anim: "animate",
   llms: "llm", chat: "llm", ollama: "llm",
   huggingface: "hf", hub: "hf",
   search: "hf search", find: "hf search",
@@ -151,9 +155,31 @@ async function cmdGen(pos, opt) {
     params[k] = `data:${mime};base64,${(await fs.readFile(params[k])).toString("base64")}`;
   }
   const body = { kind, prompt: words.join(" "), model, seed: seed !== undefined ? Number(seed) : undefined, ...params, client: "cli" };
+  await runJob("/api/generate", body, (jobs) => jobs.submit(body), out);
+}
+
+async function cmdAnimate(pos, opt) {
+  const [file, ...words] = pos;
+  if (!file) throw new Error('usage: dogs animate <image> ["motion prompt"]');
+  const { model, seed, out, ...params } = opt;
+  for (const k of Object.keys(params)) if (/^-?\d+(\.\d+)?$/.test(params[k])) params[k] = Number(params[k]);
+  // An image under outputs/ goes by path, so the server finds the prompt it was made with; anything else inline.
+  const abs = path.resolve(file);
+  let image = path.relative(OUTPUTS, abs).replace(/\\/g, "/");
+  if (image.startsWith("..") || path.isAbsolute(image)) {
+    const mime = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }[path.extname(abs).toLowerCase()];
+    if (!mime) throw new Error("the image must be a .png, .jpg or .webp file");
+    image = `data:${mime};base64,${(await fs.readFile(abs)).toString("base64")}`;
+  } else await fs.access(abs);
+  const body = { image, motion: words.join(" "), model, seed: seed !== undefined ? Number(seed) : undefined, ...params, client: "cli" };
+  await runJob("/api/animate", body, (jobs) => jobs.animate(body), out);
+}
+
+/** Queue through a running `dogs serve` (so the app sees the job), or run in-process; print the output paths. */
+async function runJob(endpoint, body, local, out) {
   let job;
   if (await apiUp()) {
-    const res = await fetch(`${API}/api/generate`, { method: "POST", headers, body: JSON.stringify(body) });
+    const res = await fetch(`${API}${endpoint}`, { method: "POST", headers, body: JSON.stringify(body) });
     job = await res.json();
     if (!res.ok) throw new Error(job.error);
     process.stderr.write(`queued ${job.id} on ${job.modelLabel} (via ${API})\n`);
@@ -164,7 +190,7 @@ async function cmdGen(pos, opt) {
     }
   } else {
     const jobs = await import("../src/jobs.mjs");
-    job = await jobs.submit(body);
+    job = await local(jobs);
     process.stderr.write(`running ${job.id} on ${job.modelLabel}\n`);
     jobs.events.on("job", (j) => j.id === job.id && progress(j));
     job = await jobs.waitFor(job);
@@ -296,6 +322,7 @@ async function main() {
       return console.log(`\nOllama ${r.version}, ${gb(r.disk.bytes)} on disk in ${r.disk.dir} (aliases share weights)`);
     }
     case "gen": case "generate": return cmdGen(pos, opt);
+    case "animate": return cmdAnimate(pos, opt);
     case "jobs": {
       const { listJobs } = await import("../src/jobs.mjs");
       for (const j of await listJobs({ limit: Number(opt.limit || 20) })) {

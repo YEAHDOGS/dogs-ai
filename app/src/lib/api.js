@@ -3,8 +3,9 @@
 
 const STORAGE_URL = 'dogs.server'
 const STORAGE_KEY = 'dogs.key'
-// Served by the dogs server or the Vite dev proxy: same origin. Inside the desktop shell: the local server.
-const DEFAULT_SERVER = location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:8787'
+// Served by the dogs server or the Vite dev proxy: same origin. Inside the desktop shell (tauri://localhost, or
+// http://tauri.localhost on Windows): the local server.
+const DEFAULT_SERVER = location.protocol.startsWith('http') && location.hostname !== 'tauri.localhost' ? '' : 'http://127.0.0.1:8787'
 
 const read = (k) => { try { return localStorage.getItem(k) } catch { return null } }
 const write = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k) } catch {} }

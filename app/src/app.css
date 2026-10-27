@@ -89,24 +89,17 @@ code {
   min-height: 56px;
 }
 
-:root[data-shell="electron"] .titlebar {
-  -webkit-app-region: drag;
+:root[data-shell="tauri"] .titlebar {
   user-select: none;
 }
 
-:root[data-shell="electron"] .titlebar :is(button, a, input, select) {
-  -webkit-app-region: no-drag;
-}
-
-/* macOS: room for the traffic lights on the left. Windows/Linux: room for the native controls on the right
-   (the Window Controls Overlay tells us where they are). */
-:root[data-shell="electron"][data-platform="darwin"] .titlebar {
+/* macOS: room for the traffic lights on the left. Windows/Linux: the header's own window buttons sit flush right. */
+:root[data-shell="tauri"][data-platform="darwin"] .titlebar {
   padding-left: 88px;
 }
 
-:root[data-shell="electron"]:not([data-platform="darwin"]) .titlebar {
-  /* Without the overlay variables, assume Windows' three 46px controls. */
-  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)) + 12px);
+:root[data-shell="tauri"]:not([data-platform="darwin"]) .titlebar {
+  padding-right: 0;
 }
 
 /* In the base layer so utilities like scrollbar-none can override it (unlayered CSS would always win). */

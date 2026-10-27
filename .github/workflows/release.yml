@@ -53,24 +53,33 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - platform: mac
+          - platform: mac-arm64
             runner: macos-latest
-            args: --mac --x64 --arm64
-          - platform: linux
-            runner: ubuntu-latest
-            args: --linux --x64 --arm64
-          # NSIS puts every --arch into one installer, so each Windows arch gets its own run.
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - platform: mac-x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+          - platform: linux-arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: appimage,deb
+          # NSIS only: MSI cannot carry pre-release versions like 0.1.0-beta.1.
           - platform: win-x64
             runner: windows-latest
-            args: --win --x64
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
           - platform: win-arm64
             runner: windows-latest
-            args: --win --arm64
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -81,42 +90,46 @@ jobs:
         with:
           node-version: ${{ env.NODE_MAJOR }}
           cache: npm
-          cache-dependency-path: |
-            app/package-lock.json
-            app/electron/package-lock.json
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
 
       - name: Install
-        run: |
-          npm ci --prefix app --no-audit --no-fund
-          npm ci --prefix app/electron --no-audit --no-fund
+        run: npm ci --prefix app --no-audit --no-fund
 
-      - name: Build web app and Electron shell
+      # beforeBuildCommand builds the web app first.
+      - name: Build and package
+        working-directory: app
         run: |
-          npm --prefix app run electron:sync
-          npm --prefix app/electron run build
-
-      - name: Package
-        working-directory: app/electron
-        run: |
-          npx electron-builder build -c ./electron-builder.release.json ${{ matrix.args }} --publish never \
-            -c.extraMetadata.version="$VERSION" \
-            -c.publish.owner="${GITHUB_REPOSITORY%%/*}" \
-            -c.publish.repo="${GITHUB_REPOSITORY#*/}"
+          npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} \
+            --config "{\"version\":\"$VERSION\"}"
 
       - name: Collect release assets
         run: |
           set -euo pipefail
           shopt -s nullglob
           mkdir -p publish
-          for f in app/electron/release/*.{dmg,zip,AppImage,deb,exe,blockmap,yml}; do
-            [[ "$(basename "$f")" == __* ]] && continue
-            cp "$f" publish/
+          bundle=app/src-tauri/target/${{ matrix.target }}/release/bundle
+          # GitHub turns spaces in asset names into dots, so name them with dashes.
+          for f in "$bundle"/{dmg/*.dmg,appimage/*.AppImage,deb/*.deb,nsis/*.exe}; do
+            name=$(basename "$f"); cp "$f" "publish/${name// /-}"
           done
-          # latest.yml has no arch in its name, so both Windows runs write one; the release job merges them.
-          if [[ "${{ matrix.platform }}" == win-* ]]; then
-            mv publish/latest.yml "publish/latest-${{ matrix.platform }}.yml"
-            rm -f publish/builder-debug.yml
-          fi
+          for app in "$bundle"/macos/*.app; do
+            tar -czf "publish/DOGS-AI_${VERSION}_${{ matrix.platform }}.app.tar.gz" -C "$(dirname "$app")" "$(basename "$app")"
+          done
           ls -la publish
 
       - uses: actions/upload-artifact@v7
@@ -234,15 +247,6 @@ jobs:
           fi
           sha256sum "${archives[@]}" > SHA256SUMS
           cat SHA256SUMS
-
-      # electron-updater reads one latest.yml per platform and picks the entry whose name carries its arch.
-      - name: Merge Windows updater manifests
-        working-directory: release-assets
-        run: |
-          set -euo pipefail
-          yq '.files += load("latest-win-arm64.yml").files' latest-win-x64.yml > latest.yml
-          rm latest-win-x64.yml latest-win-arm64.yml
-          cat latest.yml
 
       - name: Publish
         env:

@@ -203,11 +203,14 @@ export const FAMILIES = [
       start_image: image("Start frame (optional): animates this image"),
       width: int(1280, 320, 1920, 32), height: int(704, 320, 1920, 32),
       seconds: num(2, 1, 10, 0.5), fps: int(24, 8, 30), steps: int(20, 4, 50), cfg: num(5, 1, 10),
+      // fp16 weights stage ~9.5 GB in system RAM on top of the 6.4 GB text encoder; on a 32 GB machine without a
+      // page file that ran out of memory mid-sample. fp8 (cast at load) halves it with little visible difference.
+      weights: pick("fp8", ["fp8", "fp16"]),
       negative: text("overexposed, static, blurry details, subtitles, worst quality, low quality, jpeg artifacts, deformed, extra fingers, poorly drawn hands, poorly drawn face, still frame, cluttered background", "Negative prompt"),
     },
-    graph: ({ files, prompt, negative, width, height, seconds, fps, steps, cfg, seed, prefix, startImage }) => ({
+    graph: ({ files, prompt, negative, width, height, seconds, fps, steps, cfg, weights, seed, prefix, startImage }) => ({
       ...(startImage ? { img: { class_type: "LoadImage", inputs: { image: startImage } } } : {}),
-      unet: { class_type: "UNETLoader", inputs: { unet_name: files.model, weight_dtype: "default" } },
+      unet: { class_type: "UNETLoader", inputs: { unet_name: files.model, weight_dtype: weights === "fp16" ? "default" : "fp8_e4m3fn" } },
       shift: { class_type: "ModelSamplingSD3", inputs: { model: ["unet", 0], shift: 8 } },
       clip: { class_type: "CLIPLoader", inputs: { clip_name: files.text_encoder, type: "wan", device: "default" } },
       vae: { class_type: "VAELoader", inputs: { vae_name: files.vae } },

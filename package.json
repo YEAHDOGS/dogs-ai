@@ -7,10 +7,10 @@
   "bin": { "dogs": "server/bin/dogs.mjs" },
   "scripts": {
     "serve": "node server/bin/dogs.mjs serve",
-    "app:install": "npm --prefix app install && npm --prefix app run electron:setup",
+    "app:install": "npm --prefix app install",
     "web": "npm --prefix app run build && node server/bin/dogs.mjs serve",
     "desktop": "npm --prefix app run desktop",
-    "desktop:dev": "npm --prefix app/electron run electron:start-live",
+    "desktop:dev": "npm --prefix app run desktop",
     "dist": "npm --prefix app run desktop:dist",
     "dist:dir": "npm --prefix app run desktop:dir"
   },

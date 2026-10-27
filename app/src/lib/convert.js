@@ -1,5 +1,5 @@
 // Client-side media conversion: nothing is uploaded. Images go through the canvas encoder; audio and video
-// through Mediabunny (WebCodecs + muxers), which runs the same in a browser, Electron and Capacitor WebViews.
+// through Mediabunny (WebCodecs + muxers), which runs the same in a browser and the Tauri shell's webviews.
 // Every converter can aim for a target file size instead of a quality setting.
 import {
   ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Output, canEncodeAudio, canEncodeVideo,

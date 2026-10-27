@@ -1,4 +1,4 @@
-# dogs-ai: local image, video and audio generation
+# dogs-ai: local text, image, video and audio generation
 
 Everything runs on your own machine: models run in **ComfyUI** on your GPU, the **`dogs` CLI** and **API** drive
 it, and the **DOGS AI** app (Svelte + Tailwind in a Tauri shell) puts it behind a prompt box. The

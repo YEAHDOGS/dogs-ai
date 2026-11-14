@@ -168,6 +168,13 @@ its size, and a direct link. `dogs download <family>` fetches just those files.
 Their ComfyUI graphs live in [`server/src/families.mjs`](server/src/families.mjs), following the official
 ComfyUI templates. Gated repos: run `dogs hf auth login` once.
 
+Noct Q (Qwen-Image 2.1) is also built in: `dogs download noct-q` installs V4, and `dogs download noct-q-anime`
+installs Anime V1. Existing Noct Q V3 files are recognized too. Both families use the shared Qwen 2.1 8B text
+encoder and VAE; downloading a supported weight from the app's Hugging Face search installs those companions
+automatically and reuses cached files. If you already have the main weight, **Finish setup** fetches what is
+missing. Select **Noct Q (Qwen-Image 2.1)** in Create after installation. Defaults are 25 steps and CFG 3;
+on small GPUs, start at 512×512 and CFG 1 to reduce generation time.
+
 ### Any other model: bring a workflow
 
 Build the workflow in the ComfyUI web UI, export it with **Export (API)**, and save it as

@@ -73,7 +73,7 @@
               <button class="block max-w-full truncate text-left text-[11px] 2xl:text-sm text-neutral-500 hover:text-white font-mono" title="Open in file manager: {p.paths.join('\n')}" onclick={() => open(p.id)}>{p.path}</button>
               <p class="text-[11px] 2xl:text-sm text-neutral-600 line-clamp-2">{p.about}</p>
               {#if p.shared}
-                <p class="text-[11px] 2xl:text-sm text-neutral-500 flex items-center gap-1"><Link2 size={11} /> plus {size(p.shared)} of hard links that take no extra space</p>
+                <p class="text-[11px] 2xl:text-sm text-neutral-400 flex items-center gap-1"><Link2 size={11} /> {size(p.shared)} already counted elsewhere; no additional space</p>
               {/if}
             </div>
             <span class="shrink-0 text-right font-semibold text-sm 2xl:text-lg tabular-nums w-20">{size(p.bytes)}</span>
@@ -87,6 +87,7 @@
         </li>
       {/each}
     </ul>
+    <p class="text-[11px] 2xl:text-sm text-neutral-400">Sizes count shared files once across these folders. Hard links are additional names for the same data, not extra copies. Deleting one name only frees the data when its last link is removed.</p>
     <p class="text-[11px] 2xl:text-sm text-neutral-600">Delete individual models in Models above, and generations in Generated below. Only caches can be cleared here: they refill themselves when needed.</p>
   {/if}
 </div>

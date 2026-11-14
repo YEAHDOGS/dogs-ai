@@ -20,6 +20,8 @@ export function locations() {
     { label: "runtime", dir: path.join(RUNTIME, "models"), kind: "plain" },
     { label: "comfyui", dir: path.join(COMFY_DIR, "models"), kind: "plain" },
     ...hubs.map((dir) => ({ label: `hf-cache:${userOf(dir)}`, dir, kind: "hub" })),
+    // Last, so original paths remain preferred. These can be the sole surviving files after a cache cleanup.
+    { label: "comfy-linked", dir: LINKED_DIR, kind: "plain" },
   ];
 }
 
@@ -36,8 +38,8 @@ const shortId = (s) => createHash("sha1").update(s).digest("hex").slice(0, 10);
 async function resolveFile(p, blobDirs) {
   try {
     const real = await fs.realpath(p);
-    const st = await fs.stat(real);
-    if (st.isFile()) return { real, size: st.size };
+    const st = await fs.stat(real, { bigint: true });
+    if (st.isFile()) return { real, size: Number(st.size), identity: st.ino ? `${st.dev}:${st.ino}` : real };
   } catch {}
   let cur = p;
   for (let hop = 0; hop < 8; hop++) {
@@ -48,8 +50,8 @@ async function resolveFile(p, blobDirs) {
       for (const cand of [path.join(b, hash), path.join(b, hash.slice(0, 2), hash)]) {
         try {
           const real = await fs.realpath(cand);
-          const st = await fs.stat(real);
-          if (st.isFile()) return { real, size: st.size, recovered: true };
+          const st = await fs.stat(real, { bigint: true });
+          if (st.isFile()) return { real, size: Number(st.size), identity: st.ino ? `${st.dev}:${st.ino}` : real, recovered: true };
         } catch {}
       }
     }
@@ -112,8 +114,7 @@ async function* locationFiles(loc) {
 }
 
 /** Scan every location. Returns { locations, files } with one entry per distinct weight file. */
-export async function scanFiles() {
-  const locs = locations();
+export async function scanFiles(locs = locations()) {
   for (const l of locs) l.exists = await exists(l.dir);
   // Blob stores to search when a snapshot link is broken: every hub cache plus copied repos' own blobs.
   const blobDirs = [];
@@ -124,7 +125,7 @@ export async function scanFiles() {
     } catch {}
   }
 
-  const byReal = new Map();
+  const byIdentity = new Map();
   const broken = [];
   for (const loc of locs.filter((l) => l.exists)) {
     for await (const f of locationFiles(loc)) {
@@ -145,11 +146,14 @@ export async function scanFiles() {
       };
       if (!r.real) { broken.push({ ...rec, id: shortId(f.p), broken: true, blob: r.blob }); continue; }
       if (r.size < MIN_BYTES) continue;
-      if (!byReal.has(r.real)) byReal.set(r.real, { ...rec, id: shortId(r.real), broken: false, alsoAt: [] });
-      else byReal.get(r.real).alsoAt.push(f.p);
+      if (!byIdentity.has(r.identity)) byIdentity.set(r.identity, { ...rec, id: shortId(r.real), broken: false, alsoAt: [] });
+      else {
+        const existing = byIdentity.get(r.identity);
+        if (f.p !== existing.seenAt && !existing.alsoAt.includes(f.p)) existing.alsoAt.push(f.p);
+      }
     }
   }
-  const files = [...byReal.values()];
+  const files = [...byIdentity.values()];
   // A broken copy only matters when no working copy of the same file was found elsewhere.
   const good = new Set(files.map((f) => `${f.repo}|${f.rel}`));
   for (const b of broken) if (!good.has(`${b.repo}|${b.rel}`) && !files.some((f) => f.name === b.name)) files.push(b);

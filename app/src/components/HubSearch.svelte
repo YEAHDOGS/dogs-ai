@@ -35,6 +35,7 @@
   /** @type {any[] | null} */ let results = $state(null)
   /** @type {Record<string, any>} */ let files = $state({})
   let open = $state('')
+  /** @type {Record<string, boolean>} */ let starting = $state({})
   let seq = 0
 
   const pulling = $derived(new Set(store.downloads.filter((d) => d.status === 'running').map((d) => d.target)))
@@ -78,8 +79,12 @@
   }
 
   async function get(/** @type {string} */ repo, /** @type {string} */ file) {
+    const key = `${repo}/${file}`
+    if (starting[key]) return
+    starting[key] = true
     error = ''
-    try { await api('/api/downloads', { method: 'POST', json: { target: repo, files: [file] } }) } catch (err) { error = String(err.message || err) }
+    try { await store.download(repo, [file]) } catch (err) { error = String(err.message || err) }
+    finally { delete starting[key] }
   }
 
   async function pull(/** @type {string} */ repo, /** @type {string} */ file) {
@@ -148,6 +153,9 @@
               <p class="text-muted">No .safetensors / .gguf files (diffusers-format repos don't run in ComfyUI).</p>
             {:else}
               {#each files[r.repo].files as f (f.file)}
+                {@const model = store.catalog.models.find((m) => m.files?.model && (m.files.model.repo === r.repo || m.family === r.family) && m.files.model.name === f.file.split('/').pop())}
+                {@const download = store.downloads.find((d) => d.target === r.repo && d.files?.includes(f.file))}
+                {@const downloading = starting[`${r.repo}/${f.file}`] || download?.status === 'running'}
                 <div class="flex items-center gap-2">
                   <a class="flex-1 min-w-0 truncate text-neutral-300 hover:text-neon-red" href={f.url} target="_blank" rel="noopener noreferrer" title={f.file}>{f.file}</a>
                   <span class="shrink-0 text-neutral-500">{size(f.size)}</span>
@@ -158,14 +166,22 @@
                       {have ? 'In library' : 'Add to library'}
                     </button>
                   {:else}
-                    <button class={BTN} onclick={() => get(r.repo, f.file)} aria-label="Download {f.file}"><Download size={12} /></button>
+                    <button class="{BTN} shrink-0" onclick={() => get(r.repo, f.file)} disabled={downloading || model?.status === 'ready'} aria-label="Download {f.file}">
+                      {#if downloading}<LoaderCircle size={12} class="animate-spin" />{:else}<Download size={12} />{/if}
+                      {downloading ? 'Downloading…' : model?.status === 'ready' ? 'In library' : model ? 'Finish setup' : 'Download'}
+                    </button>
                   {/if}
                 </div>
+                {#if !f.ollama && download}
+                  <p role="status" class="break-words text-[11px] 2xl:text-sm {download.status === 'error' ? 'text-neon-red' : 'text-neutral-400'}">
+                    {download.status === 'error' ? download.error : download.status === 'done' ? 'Download complete.' : download.log.at(-1) || 'Starting download…'}
+                  </p>
+                {/if}
               {/each}
               {#if files[r.repo].chat}
                 <p class="text-neutral-600 mt-1 flex items-center gap-1"><MessageSquare size={11} class="shrink-0" /> Text model: added to Ollama, then pick it in Chat. Smaller quants (Q4) need less memory; Q8 is closest to the original.</p>
               {:else}
-                <p class="text-neutral-600 mt-1">Files without a built-in workflow show under "unrecognized"; add a ComfyUI workflow in <code>workflows/</code> to use them.</p>
+                <p class="text-neutral-400 mt-1">{#if r.family}Downloading a supported model also installs its required companion files. Existing downloads are reused.{:else}Files without a built-in workflow show under "unrecognized"; add a ComfyUI workflow in <code>workflows/</code> to use them.{/if}</p>
               {/if}
             {/if}
           </div>

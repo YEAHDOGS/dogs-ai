@@ -38,7 +38,17 @@ export function planDownload(target, files = [], roles = null) {
     if (!Array.isArray(files)) throw Object.assign(new Error("files must be an array of paths"), { status: 400 });
     const bad = files.find((f) => typeof f !== "string" || !FILE_RE.test(f) || f.split("/").includes(".."));
     if (bad !== undefined) throw Object.assign(new Error(`invalid file path "${bad}"`), { status: 400 });
-    return { label: target, steps: [{ repo: target, files }] };
+    // A supported main weight needs its encoder/VAE too. Match the repo AND filename so an unrelated
+    // upload cannot acquire a workflow just by borrowing a familiar filename (and companions stay raw).
+    const families = FAMILIES.filter((f) => f.download.items.some((it) => it.role === "model" && it.repo === target)
+      && files.some((file) => f.files.model.match.test(path.posix.basename(file))));
+    const byRepo = new Map([[target, new Set(files)]]);
+    for (const family of families) for (const item of family.download.items) {
+      if (item.role === "model") continue;
+      if (!byRepo.has(item.repo)) byRepo.set(item.repo, new Set());
+      byRepo.get(item.repo).add(item.file);
+    }
+    return { label: target, steps: [...byRepo].map(([repo, names]) => ({ repo, files: [...names] })) };
   }
   const e = new Error(`"${target}" is neither a model family (${FAMILIES.map((f) => f.id).join(", ")}) nor an org/repo id`);
   e.status = 400;
@@ -165,10 +175,10 @@ export function getDownload(id) { return downloads.get(id) || null; }
 export function startDownload(target, files = [], { onLine, roles = null } = {}) {
   const plan = planDownload(target, files, roles);
   if (!plan.steps.length) throw Object.assign(new Error(`${plan.label}: nothing to download, every file is already installed`), { status: 400 });
-  const dl = { id: randomUUID().slice(0, 8), target, label: plan.label, status: "running", log: [], started: Date.now(), finished: null, error: null };
+  const dl = { id: randomUUID().slice(0, 8), target, files: [...files], label: plan.label, status: "running", log: [], started: Date.now(), finished: null, error: null };
   downloads.set(dl.id, dl);
   const push = (line) => {
-    line = line.replace(/\r/g, "").trimEnd();
+    line = line.replace(/\r/g, "").replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").trimEnd();
     if (!line) return;
     dl.log.push(line);
     if (dl.log.length > 200) dl.log.splice(0, dl.log.length - 200);
@@ -180,7 +190,9 @@ export function startDownload(target, files = [], { onLine, roles = null } = {})
     for (const step of plan.steps) {
       push(`> hf download ${step.repo} ${step.files.join(" ")}`);
       const code = await new Promise((resolve) => {
-        const p = spawn(hf[0], [...hf.slice(1), "download", step.repo, ...step.files], { windowsHide: true, shell: IS_WIN && hf[0] === "hf", env: { ...process.env, HF_HUB_DISABLE_SYMLINKS_WARNING: "1" } });
+        // Recent hf versions suppress progress when output is piped or an agent is detected. The GUI
+        // consumes these progress lines, so enable them unless the user explicitly disabled them.
+        const p = spawn(hf[0], [...hf.slice(1), "download", step.repo, ...step.files], { windowsHide: true, shell: IS_WIN && hf[0] === "hf", env: { ...process.env, HF_HUB_DISABLE_SYMLINKS_WARNING: "1", HF_HUB_DISABLE_PROGRESS_BARS: process.env.HF_HUB_DISABLE_PROGRESS_BARS ?? "0" } });
         const feed = (d) => String(d).split(/\n|\r(?!\n)/).forEach(push);
         p.stdout.on("data", feed);
         p.stderr.on("data", feed);

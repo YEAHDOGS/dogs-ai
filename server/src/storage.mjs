@@ -19,7 +19,7 @@ function places() {
   const list = [
     { id: "outputs", label: "Generated media", kind: "media", dir: OUTPUTS, about: "Everything you've generated, plus uploads for characters and start frames." },
     { id: "project-models", label: "Project models folder", kind: "models", dir: MODELS_DIR, about: "Models you copied into the project. Hugging Face folders here may just be links into a cache." },
-    { id: "linked", label: "ComfyUI model links", kind: "links", dir: LINKED_DIR, about: "Hard links so ComfyUI can see your models. They share space with the originals (counted once)." },
+    { id: "linked", label: "ComfyUI model files", kind: "models", dir: LINKED_DIR, about: "Models used by ComfyUI. Shared links use no extra space, but files remain here when their originals are deleted. Manage them in Models; this is not a disposable cache." },
     ...hubRoots().map((dir) => ({ id: `hf-${userOf(dir) || "env"}`, label: `Hugging Face cache (${userOf(dir) || "HF_HOME"})`, kind: "models", dir, about: "Models downloaded with the Hugging Face CLI by this user." })),
     { id: "hf-xet", label: "Hugging Face download cache", kind: "cache", dir: path.join(home, ".cache", "huggingface", "xet"), clear: true, about: "Chunks kept to speed up re-downloads. Safe to clear." },
     { id: "ollama", label: "Ollama models", kind: "models", dir: path.join(process.env.OLLAMA_MODELS || path.join(home, ".ollama", "models")), about: "Chat models (Qwen). Remove individual models in Library → Models." },
@@ -35,7 +35,7 @@ function places() {
 }
 
 // Walk a tree without following links. `seen` tracks file identities so hard links count once overall.
-async function measure(target, seen) {
+export async function measure(target, seen = new Set()) {
   let bytes = 0, files = 0, shared = 0;
   async function walk(p, depth) {
     let st;
@@ -51,7 +51,9 @@ async function measure(target, seen) {
     if (!st.isFile()) return;
     files++;
     const key = `${st.dev}:${st.ino}`;
-    if (st.nlink > 1n && seen.has(key)) { shared += Number(st.size); return; }
+    // A nested place (e.g. ComfyUI temp inside the engine folder) also visits the very same file again,
+    // even when it has only one hard link. Count that storage once too.
+    if (seen.has(key)) { shared += Number(st.size); return; }
     seen.add(key);
     bytes += Number(st.size);
   }

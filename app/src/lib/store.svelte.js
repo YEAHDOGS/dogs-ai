@@ -161,10 +161,11 @@ class Store {
   /** @param {string} id */
   cancel(id) { return api(`/api/jobs/${id}`, { method: 'DELETE' }) }
 
-  /** @param {string} target */
-  async download(target) {
-    const d = await api('/api/downloads', { method: 'POST', json: { target } })
+  /** @param {string} target @param {string[]} files */
+  async download(target, files = []) {
+    const d = await api('/api/downloads', { method: 'POST', json: { target, files } })
     this.#onDownload(d)
+    return d
   }
 
   /** Add a chat GGUF from Hugging Face to Ollama. @param {string} repo @param {string} file */

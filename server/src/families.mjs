@@ -15,6 +15,45 @@ const IMAGE_SIZE = { width: int(1024, 256, 2048, 16), height: int(1024, 256, 204
 const saveVideo = (video, prefix) => ({ class_type: "SaveVideo", inputs: { video, filename_prefix: prefix, format: "mp4", "format.codec": "h264" } });
 const saveAudio = (audio, prefix) => ({ class_type: "SaveAudioAdvanced", inputs: { audio, filename_prefix: prefix, format: "mp3", "format.quality": "V0" } });
 
+// Qwen derivatives use the same core-node workflow and companions as the base model.
+const QWEN_IMAGE_21 = {
+  id: "qwen-image-2.1",
+  kind: "image",
+  label: "Qwen-Image 2.1",
+  blurb: "Strong prompt following and text rendering, native 2K. Heavy: wants 12 GB+ VRAM or a GGUF quant.",
+  files: {
+    model: { folder: "diffusion_models", match: /^qwen[-_]image[-_]2\.1(?!.*vae).*\.(safetensors|gguf)$/i },
+    text_encoder: { folder: "text_encoders", match: /^qwen3vl_8b.*\.safetensors$/i },
+    vae: { folder: "vae", match: /^qwen[-_]image[-_]2\.1[-_]vae.*\.safetensors$/i },
+  },
+  download: {
+    items: [
+      { repo: "Comfy-Org/Qwen-Image-2.1", file: "diffusion_models/qwen_image_2.1_int8_convrot.safetensors", role: "model", size: 7256783064 },
+      { repo: "Comfy-Org/Qwen-Image-2.1", file: "text_encoders/qwen3vl_8b_int8_convrot.safetensors", role: "text_encoder", size: 9350798360 },
+      { repo: "Comfy-Org/Qwen-Image-2.1", file: "vae/qwen_image_2.1_vae_bf16.safetensors", role: "vae", size: 675509688 },
+    ],
+  },
+  // .gguf weights need the ComfyUI-GGUF custom node (UnetLoaderGGUF); ComfyUI core only loads safetensors.
+  nodesFor: (files) => (files.model.endsWith(".gguf") ? ["UnetLoaderGGUF"] : []),
+  params: { ...IMAGE_SIZE, steps: int(25, 4, 50), cfg: num(1, 1, 10), negative: text("", "Negative prompt") },
+  graph: ({ files, prompt, negative, width, height, steps, cfg, seed, prefix }) => ({
+    unet: files.model.endsWith(".gguf")
+      ? { class_type: "UnetLoaderGGUF", inputs: { unet_name: files.model } }
+      : { class_type: "UNETLoader", inputs: { unet_name: files.model, weight_dtype: "default" } },
+    cache: { class_type: "QwenImage21Cache", inputs: { model: ["unet", 0], device: "auto", dtype: "default" } },
+    clip: { class_type: "CLIPLoader", inputs: { clip_name: files.text_encoder, type: "qwen_image", device: "default" } },
+    vae: { class_type: "VAELoader", inputs: { vae_name: files.vae } },
+    cond: { class_type: "TextEncodeQwenImage21", inputs: { clip: ["clip", 0], prompt, negative_prompt: negative || "", resolution: 1024 } },
+    latent: { class_type: "EmptyLatentImage", inputs: { width, height, batch_size: 1 } },
+    sample: {
+      class_type: "KSampler",
+      inputs: { model: ["cache", 0], positive: ["cond", 0], negative: ["cond", 1], latent_image: ["latent", 0], seed, steps, cfg, sampler_name: "euler", scheduler: "simple", denoise: 1 },
+    },
+    decode: { class_type: "VAEDecode", inputs: { samples: ["sample", 0], vae: ["vae", 0] } },
+    save: { class_type: "SaveImage", inputs: { images: ["decode", 0], filename_prefix: prefix } },
+  }),
+};
+
 export const FAMILIES = [
   {
     id: "flux3-klein",
@@ -145,42 +184,41 @@ export const FAMILIES = [
       save: { class_type: "SaveImage", inputs: { images: ["decode", 0], filename_prefix: prefix } },
     }),
   },
+  QWEN_IMAGE_21,
   {
-    id: "qwen-image-2.1",
-    kind: "image",
-    label: "Qwen-Image 2.1",
-    blurb: "Strong prompt following and text rendering, native 2K. Heavy: wants 12 GB+ VRAM or a GGUF quant.",
+    ...QWEN_IMAGE_21,
+    id: "noct-q",
+    label: "Noct Q (Qwen-Image 2.1)",
+    blurb: "Noctaluna's Qwen-Image 2.1 realism model. Shares the Qwen text encoder and VAE.",
     files: {
-      model: { folder: "diffusion_models", match: /^qwen[-_]image[-_]2\.1(?!.*vae).*\.(safetensors|gguf)$/i },
-      text_encoder: { folder: "text_encoders", match: /^qwen3vl_8b.*\.safetensors$/i },
-      vae: { folder: "vae", match: /^qwen[-_]image[-_]2\.1[-_]vae.*\.safetensors$/i },
+      ...QWEN_IMAGE_21.files,
+      model: { folder: "diffusion_models", match: /^NoctQ_V\d+(?:_[\w.-]+)?\.safetensors$/i },
     },
     download: {
       items: [
-        { repo: "Comfy-Org/Qwen-Image-2.1", file: "diffusion_models/qwen_image_2.1_int8_convrot.safetensors", role: "model", size: 7256783064 },
-        { repo: "Comfy-Org/Qwen-Image-2.1", file: "text_encoders/qwen3vl_8b_int8_convrot.safetensors", role: "text_encoder", size: 9350798360 },
-        { repo: "Comfy-Org/Qwen-Image-2.1", file: "vae/qwen_image_2.1_vae_bf16.safetensors", role: "vae", size: 675509688 },
+        { repo: "Noctaluna/Noct-Q-Uncensored-Qwen-Image-2.1", file: "NoctQ_V4_int8_convrot.safetensors", role: "model", size: 7256784368 },
+        ...QWEN_IMAGE_21.download.items.filter((it) => it.role !== "model"),
       ],
     },
-    // .gguf weights need the ComfyUI-GGUF custom node (UnetLoaderGGUF); ComfyUI core only loads safetensors.
-    nodesFor: (files) => (files.model.endsWith(".gguf") ? ["UnetLoaderGGUF"] : []),
-    params: { ...IMAGE_SIZE, steps: int(25, 4, 50), cfg: num(1, 1, 10), negative: text("", "Negative prompt") },
-    graph: ({ files, prompt, negative, width, height, steps, cfg, seed, prefix }) => ({
-      unet: files.model.endsWith(".gguf")
-        ? { class_type: "UnetLoaderGGUF", inputs: { unet_name: files.model } }
-        : { class_type: "UNETLoader", inputs: { unet_name: files.model, weight_dtype: "default" } },
-      cache: { class_type: "QwenImage21Cache", inputs: { model: ["unet", 0], device: "auto", dtype: "default" } },
-      clip: { class_type: "CLIPLoader", inputs: { clip_name: files.text_encoder, type: "qwen_image", device: "default" } },
-      vae: { class_type: "VAELoader", inputs: { vae_name: files.vae } },
-      cond: { class_type: "TextEncodeQwenImage21", inputs: { clip: ["clip", 0], prompt, negative_prompt: negative || "", resolution: 1024 } },
-      latent: { class_type: "EmptyLatentImage", inputs: { width, height, batch_size: 1 } },
-      sample: {
-        class_type: "KSampler",
-        inputs: { model: ["cache", 0], positive: ["cond", 0], negative: ["cond", 1], latent_image: ["latent", 0], seed, steps, cfg, sampler_name: "euler", scheduler: "simple", denoise: 1 },
-      },
-      decode: { class_type: "VAEDecode", inputs: { samples: ["sample", 0], vae: ["vae", 0] } },
-      save: { class_type: "SaveImage", inputs: { images: ["decode", 0], filename_prefix: prefix } },
-    }),
+    // Match the author's workflow: 25 steps, Euler/simple, CFG 3. Keep a modest square default on small GPUs.
+    params: { ...QWEN_IMAGE_21.params, width: int(1024, 256, 2048, 32), height: int(1024, 256, 2048, 32), cfg: num(3, 1, 10) },
+  },
+  {
+    ...QWEN_IMAGE_21,
+    id: "noct-q-anime",
+    label: "Noct Q Anime (Qwen-Image 2.1)",
+    blurb: "Noctaluna's Qwen-Image 2.1 anime model. Start the prompt with 'An anime illustration of'.",
+    files: {
+      ...QWEN_IMAGE_21.files,
+      model: { folder: "diffusion_models", match: /^NoctQA_V\d+(?:_[\w.-]+)?\.safetensors$/i },
+    },
+    download: {
+      items: [
+        { repo: "Noctaluna/Noct-Q-Anime-Uncensored-Qwen-Image-2.1", file: "NoctQA_V1_int8_convrot.safetensors", role: "model", size: 7256784368 },
+        ...QWEN_IMAGE_21.download.items.filter((it) => it.role !== "model"),
+      ],
+    },
+    params: { ...QWEN_IMAGE_21.params, width: int(1024, 256, 2048, 32), height: int(1024, 256, 2048, 32), cfg: num(3, 1, 10) },
   },
   {
     id: "wan2.2-ti2v-5b",

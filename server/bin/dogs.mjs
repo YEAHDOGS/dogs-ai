@@ -4,12 +4,12 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
-import { API_PORT, API_KEY, OUTPUTS, REPO, MODELS_DIR } from "../src/config.mjs";
+import { API_PORT, API_KEY, OUTPUTS, REPO, MODELS_DIR, DATA, RUNTIME, OLLAMA_URL, readServer } from "../src/config.mjs";
 
 const HELP = `dogs - local image / video / audio generation (ComfyUI)
 
 Usage:
-  dogs serve [--host 0.0.0.0] [--port 8787]   Start the API (and the app at http://host:port/)
+  dogs serve [--host 0.0.0.0] [--port 8788]   Start the API (and the app at http://host:port/)
   dogs app                                    Open the desktop app
   dogs models [--kind image|video|audio] [--json]
                                               List models found on this machine and what is missing
@@ -89,7 +89,8 @@ function flags(args) {
   return { pos, opt };
 }
 
-const API = `http://127.0.0.1:${API_PORT}`;
+// The engine that is running, whichever app started it (DATA/server.json), else the usual address.
+const API = readServer()?.url || `http://127.0.0.1:${API_PORT}`;
 const headers = { "content-type": "application/json", ...(API_KEY ? { authorization: `Bearer ${API_KEY}` } : {}) };
 async function apiUp() {
   try { return (await fetch(`${API}/api/health`, { headers, signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
@@ -129,6 +130,11 @@ async function cmdModels(opt) {
 }
 
 function printWhere(r) {
+  console.log(`Data (shared by every copy of DOGS AI on this computer): ${DATA}`);
+  console.log(`  runtime ${RUNTIME}
+  outputs ${OUTPUTS}
+  Ollama  ${OLLAMA_URL}
+`);
   console.log("Scanned folders:");
   for (const l of r.locations) console.log(`  ${l.exists ? "\x1b[32m✓\x1b[0m" : "\x1b[2m·\x1b[0m"} ${l.label.padEnd(18)} ${l.dir}`);
   console.log(`

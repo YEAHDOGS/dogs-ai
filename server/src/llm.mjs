@@ -15,9 +15,11 @@ async function ollama(pathname, body) {
   return res.json();
 }
 
-/** Start `ollama serve` when nothing answers (the Ollama tray app usually runs it already). */
+/** Start `ollama serve` when nothing answers (the Ollama tray app usually runs it already). Only for an Ollama on
+ * this computer: one elsewhere (Castle's box on another machine, say) is not this engine's to start. */
 export async function ensureOllama() {
   try { await ollama("/api/version"); return; } catch {}
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(OLLAMA_URL)) return;
   spawn("ollama", ["serve"], { detached: true, windowsHide: true, stdio: "ignore" })
     .on("error", (e) => console.error("[dogs] could not start Ollama:", e.message)).unref();
 }

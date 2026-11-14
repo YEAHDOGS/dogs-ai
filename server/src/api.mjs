@@ -4,7 +4,7 @@ import http from "node:http";
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
-import { API_HOST, API_PORT, API_KEY, OUTPUTS, REPO, COMFY_URL } from "./config.mjs";
+import { API_HOST, API_PORT, API_KEY, OUTPUTS, REPO, COMFY_URL, DATA, OLLAMA_URL, setOllamaUrl, recordServer, forgetServer } from "./config.mjs";
 import { listModels, deleteFiles, ensureExtraPaths } from "./models.mjs";
 import { submit, animate, listJobs, getJob, cancel, removeJob, waitFor, activeJobs, events as jobEvents, mimeOf } from "./jobs.mjs";
 import { clearDatabase } from "./db.mjs";
@@ -59,6 +59,8 @@ const ENDPOINTS = [
   ["POST", "/api/downloads", "{ target: <family id or org/repo>, files?: [], all?: bool } -> start a Hugging Face download (families fetch only missing files)"],
   ["GET", "/api/downloads", "Download progress"],
   ["POST", "/api/comfy/start | /api/comfy/stop | /api/comfy/free", "Control the ComfyUI process / VRAM"],
+  ["GET", "/api/connections", "The Ollama address every copy of DOGS AI on this computer uses, and the shared data folder"],
+  ["POST", "/api/connections", "{ ollama } -> change the Ollama address (kept for every copy; empty = the default)"],
   ["GET", "/api/events", "Server-Sent Events: job and download updates"],
 ];
 
@@ -160,7 +162,17 @@ async function route(req, res, url) {
   if (p === "/api/health" && m === "GET") {
     const up = await comfyUp();
     const state = up ? await comfyStats().catch((e) => ({ error: e.message })) : { starting: comfyStarting(), error: startError || undefined };
-    return send(res, 200, { ok: true, comfy: { url: COMFY_URL, up, ...state }, auth: !!API_KEY });
+    return send(res, 200, { ok: true, comfy: { url: COMFY_URL, up, ...state }, auth: !!API_KEY, data: DATA, ollama: OLLAMA_URL });
+  }
+  if (p === "/api/connections" && m === "GET") return send(res, 200, { ollama: OLLAMA_URL, data: DATA });
+  if (p === "/api/connections" && m === "POST") {
+    const body = await readBody(req);
+    if (body.ollama !== undefined) {
+      const url = String(body.ollama || "").trim();
+      if (url && !/^https?:\/\/[^\s/]+(:\d+)?\/?$/.test(url)) throw Object.assign(new Error("ollama must be an address like http://127.0.0.1:11434"), { status: 400 });
+      setOllamaUrl(url);
+    }
+    return send(res, 200, { ollama: OLLAMA_URL, data: DATA });
   }
   if (p === "/api/models" && m === "GET") {
     const r = await listModels({ refresh: url.searchParams.has("refresh") });
@@ -338,6 +350,12 @@ export function serve({ host = API_HOST, port = API_PORT } = {}) {
     }
   });
   return new Promise((resolve) => server.listen(port, host, () => {
+    // Every copy of DOGS AI on this computer finds this engine through DATA/server.json, and uses it.
+    const a = server.address();
+    recordServer({ url: `http://${["0.0.0.0", "::"].includes(a.address) ? "127.0.0.1" : a.address}:${a.port}`, port: a.port, host: a.address, keyed: !!API_KEY });
+    process.on("exit", forgetServer);
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => process.exit(0));
+    server.on("close", forgetServer);
     warmUp().catch((e) => console.error("[dogs]", e.message));
     resolve(server);
   }));

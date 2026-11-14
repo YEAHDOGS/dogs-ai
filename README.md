@@ -7,18 +7,23 @@ same API is what an outside assistant calls later ("I need an image of skyscrape
 ```
  DOGS AI app (desktop / browser)      dogs CLI          other tools (Muse, scripts, curl)
               \                          |                       /
-               +------------ dogs API  :8787 (server/) --------+
+               +------------ dogs API  :8788 (server/) --------+
                                          |
                               ComfyUI :8188 (runtime/ComfyUI)  ->  outputs/
                                          |
-         models: ./models  +  every user's ~/.cache/huggingface/hub  +  runtime/models
+         models: models/  +  every user's ~/.cache/huggingface/hub  +  runtime/models
 ```
+
+Everything DOGS AI installs, downloads or makes lives in **one data folder per user**, shared by every copy on
+this computer: the desktop app, the `dogs` CLI, Castle's AI section, and any checkout. Models, history, chats,
+characters and prompts are the same whichever one is open, and they stay through every update. The paths
+below (`runtime/`, `models/`, `outputs/`) are inside it. See [Data](#data).
 
 | Piece | What | Where |
 |---|---|---|
 | `dogs` CLI + API | Scans models, queues jobs, talks to ComfyUI, downloads from Hugging Face | `server/` (Node 22+, no dependencies) |
 | DOGS AI app | Prompt, pick a model, see results; desktop app or web page | `app/` (Svelte 5, Tailwind 4, Tauri 2) |
-| ComfyUI `v0.42.5` | Runs the models | `runtime/ComfyUI` (git-ignored) |
+| ComfyUI `v0.42.5` | Runs the models | `runtime/ComfyUI` in the data folder |
 | opencode + Qwen3.5 (Ollama) | Agentic coding with local models (see [Coding agent](#coding-agent-opencode)) | global, `opencode/`, `mcp/comfy-mcp` |
 
 ## Install (Windows)
@@ -71,7 +76,7 @@ From a terminal or another tool:
 ```powershell
 dogs animate .\outputs\generated\image\flux3-klein_00001_.png                      # one step, sensible defaults
 dogs animate .\photo.jpg "the camera slowly pushes in, rain falls" --seconds 3     # any image, with a motion prompt
-curl -s http://127.0.0.1:8787/api/animate -H "content-type: application/json" -d '{"image":"generated/image/flux3-klein_00001_.png","motion":"slow zoom out","wait":true}'
+curl -s http://127.0.0.1:8788/api/animate -H "content-type: application/json" -d '{"image":"generated/image/flux3-klein_00001_.png","motion":"slow zoom out","wait":true}'
 ```
 
 Animate picks the installed video model that takes a start frame (Wan 2.2 TI2V 5B first, then LTX-Video),
@@ -93,7 +98,7 @@ the image's aspect ratio.
 ## The CLI
 
 ```
-dogs serve [--host 0.0.0.0] [--port 8787]   API + the web app at http://host:port/
+dogs serve [--host 0.0.0.0] [--port 8788]   API + the web app at http://host:port/
 dogs app                                    open the desktop app
 dogs models [--kind image|video|audio]      what is installed, ready, or missing (and the download size)
 dogs where                                  every folder scanned for models
@@ -128,7 +133,7 @@ dogs models import <model id>               copy a model in when its files are o
 
 `dogs` scans, on every refresh:
 
-1. **`models/`** in this project. Drop plain `.safetensors` / `.gguf` files here, or cut and paste whole
+1. **`models/`** in the data folder. Drop plain `.safetensors` / `.gguf` files here, or cut and paste whole
    Hugging Face cache folders (`models--org--name`).
 2. **Every user profile's Hugging Face cache**: `C:\Users\*\.cache\huggingface\hub` (plus `HF_HOME` /
    `HF_HUB_CACHE`). `hf download` saves into the cache of whoever ran it, often an admin account, so all of
@@ -220,10 +225,33 @@ when it opens and restarts it if it stops, so you never start it by hand. While 
 
 ### Data
 
+One folder per user holds all of it, shared by every copy of DOGS AI on this computer:
+
+| System | Folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\DOGS AI` |
+| macOS | `~/Library/Application Support/DOGS AI` |
+| Linux | `$XDG_DATA_HOME/dogs-ai` (`~/.local/share/dogs-ai`) |
+
+`DOGS_AI_DATA` puts it anywhere else; `dogs where` prints it. Inside: `runtime/` (ComfyUI and its Python, linked
+models, the database), `models/`, `outputs/`, and two small files:
+
+- `settings.json`: connections every copy uses. Today that is the Ollama address, so chat uses the same Ollama
+  (and the same models) everywhere. Change it with `POST /api/connections {"ollama": "http://host:11434"}`, or
+  start the engine with `DOGS_AI_OLLAMA` set (Castle does this with the address its box uses). `OLLAMA_URL`
+  still overrides it for one process only.
+- `server.json`: the engine that is running, written while it listens. The desktop app, the CLI and Castle use
+  that engine instead of starting another, so there is one engine (and one ComfyUI) per computer.
+
+Copies from before this kept `runtime/`, `models/` and `outputs/` inside their own folder. The first time a newer
+copy starts they are moved into the data folder (on the same drive that is a rename, so it is instant), and
+ComfyUI's `extra_model_paths.yaml` is pointed at the new place. While the older copy is still running from them
+they are used where they are, and moved on a later start. Castle passes its own older copies in `DOGS_AI_LEGACY`.
+
 Generation history (prompt, model, parameters, seed, timestamps, output files) lives in **SQLite** at
 `runtime/dogs.db`, through Node's built-in `node:sqlite` (no dependency, no database server; also works on a
 Raspberry Pi). Every generated file (app, CLI, API and the opencode `/image` tools) is a plain file in
-`outputs/generated/<image|video|audio>/` in this project folder; `outputs/inputs/` holds uploaded start frames and
+`outputs/generated/<image|video|audio>/`; `outputs/inputs/` holds uploaded start frames and
 `outputs/characters/` character uploads. Files from older versions in `outputs/<kind>/` are moved there (and
 their history updated) the next time the engine starts. All database access is in `server/src/db.mjs` with plain SQL, so a
 later move to Cloudflare Workers + D1 (also SQLite) swaps that one file, and `outputs/` maps to R2. There is no
@@ -232,10 +260,11 @@ ORM; the schema is one table.
 | How | Command |
 |---|---|
 | Desktop window (dev, hot reload) | `npm run desktop` (or `dogs app`) |
-| In a browser, served by the API | `npm run web`, then open <http://127.0.0.1:8787> |
+| In a browser, served by the API | `npm run web`, then open <http://127.0.0.1:8788> |
 | In a browser, hot reload | `dogs serve` in one terminal, `npm --prefix app run dev` in another |
 
-The desktop app starts `dogs serve` itself if nothing is listening on port 8787. Settings (gear icon) point
+The desktop app uses the engine that is already running (Castle's, say: see [Data](#data)), and otherwise starts
+`dogs serve` itself on port 8788, or the next free port. Settings (gear icon) point
 it at another machine's API, with an API key if that server has one.
 
 ### Build the desktop app
@@ -275,7 +304,7 @@ The packaged app runs the `dogs` server from this project folder. The path is re
 
 ## API (for other tools)
 
-`dogs serve` listens on `127.0.0.1:8787`. To reach it from other machines (a Raspberry Pi on the router, an
+`dogs serve` listens on `127.0.0.1:8788`. To reach it from other machines (a Raspberry Pi on the router, an
 assistant), bind it to the network **with a key**:
 
 ```powershell
@@ -287,10 +316,10 @@ Clients send `Authorization: Bearer <key>` (or `?key=` for `<img src>` / EventSo
 
 ```bash
 # one call, waits, returns the finished job with file URLs
-curl -s http://127.0.0.1:8787/api/generate -H "content-type: application/json" \
+curl -s http://127.0.0.1:8788/api/generate -H "content-type: application/json" \
   -d '{"kind":"image","prompt":"skyscrapers at dusk","width":1024,"height":768,"wait":true}'
 # -> { "status":"done", "outputs":[{ "url":"/files/image/flux3-klein_00003_.png", "mime":"image/png" }], ... }
-curl -s -o skyscrapers.png http://127.0.0.1:8787/files/image/flux3-klein_00003_.png
+curl -s -o skyscrapers.png http://127.0.0.1:8788/files/image/flux3-klein_00003_.png
 ```
 
 `GET /api` lists every endpoint: models (with storage totals, and delete), generate, jobs (poll, search prompts
@@ -312,7 +341,8 @@ install.ps1, stack.json     installer and pinned versions
 server/                     dogs CLI (bin/dogs.mjs) and API (src/): scan, families, comfy, jobs, db, llm, hub, api
 app/                        DOGS AI app: src/ (Svelte), src-tauri/ (Tauri desktop shell, Rust)
 workflows/                  your own ComfyUI API-format workflows (optional)
-models/                     drop models here (git-ignored)
 mcp/comfy-mcp, opencode/, ollama/, scripts/   coding agent setup and PowerShell helpers
-runtime/, outputs/          ComfyUI, linked models, database; outputs/generated/ has every generated file (git-ignored)
 ```
+
+And in the [data folder](#data): `models/` (drop models here), `runtime/` (ComfyUI, linked models, the
+database) and `outputs/` (`outputs/generated/` has every generated file).

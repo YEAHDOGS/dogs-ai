@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 // The app runs in the Tauri shell (WebView2, WKWebView, WebKitGTK) or a current browser, so there is no legacy tier.
 const BUILD_TARGET = ['chrome111', 'edge111', 'firefox114', 'safari16.4']
 // `npm run dev` proxies the API so the dev page talks to `dogs serve` like the built app does.
-const API = `http://127.0.0.1:${process.env.DOGS_PORT || 8787}`
+const API = `http://127.0.0.1:${process.env.DOGS_PORT || 8788}`
 
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],

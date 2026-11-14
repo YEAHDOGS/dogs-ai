@@ -8,6 +8,7 @@
     "torchIndex": "https://download.pytorch.org/whl/cu128",
     "args": ["--listen", "127.0.0.1", "--port", "8188"]
   },
+  "api": { "port": 8788, "$port": "Not 8787: that is Castle's box. The desktop app and Castle find a running engine through server.json in the data folder." },
   "opencode": { "npm": "opencode-ai", "version": "1.19.4" },
   "ollama": {
     "host": "http://127.0.0.1:11434",
@@ -17,7 +18,7 @@
   "flux": {
     "hfRepo": "black-forest-labs/flux-3-image-klein-comfy",
     "licenseUrl": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy",
-    "$files": "Downloaded with the HF repo layout into runtime/models/flux3-klein; extra_model_paths.yaml maps the folders.",
+    "$files": "Downloaded with the HF repo layout into runtime/models/flux3-klein (in the data folder); extra_model_paths.yaml maps the folders.",
     "files": [
       "diffusion_models/flux3-image-klein-int8-convrot.safetensors",
       "text_encoders/qwen3vl_4b_int8_convrot.safetensors",

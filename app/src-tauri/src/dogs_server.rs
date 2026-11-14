@@ -1,6 +1,10 @@
 // Runs the local dogs engine (server/bin/dogs.mjs serve) for the desktop app, so nobody has to start a server:
 // it starts when the app opens and is restarted if it ever stops. It runs on the Node that ships in the dogs
 // CLI archive (<home>/node/), else the Node on PATH.
+//
+// One engine serves every copy of DOGS AI on this computer: one that is already running (started by Castle, the
+// CLI or another window) is used as it is. It is found through server.json in the shared data folder, which the
+// engine writes while it listens; the engines all use that folder, so models, history and chats are the same.
 use std::{
     env,
     io::{Read, Write},
@@ -15,25 +19,40 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DEFAULT_PORT: u16 = 8787;
+/// Not 8787: that is Castle's box. Taken by something else, the next free port up to 8799 is used.
+const DEFAULT_PORT: u16 = 8788;
+const PORTS_TRIED: u16 = 12;
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(1500);
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 const START_POLL: Duration = Duration::from_millis(300);
 const WATCH: Duration = Duration::from_secs(5);
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Engine {
     child: Arc<Mutex<Option<Child>>>,
     stopped: Arc<AtomicBool>,
+    /// Where the engine listens: the running one's port, else one picked when the app opened.
+    port: u16,
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        Self { child: Arc::default(), stopped: Arc::default(), port: pick_port() }
+    }
 }
 
 impl Engine {
+    /// The address the window talks to.
+    pub fn url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+
     /// Start the engine if needed, then keep it running for as long as the app is open.
     pub fn spawn(&self) {
         let engine = self.clone();
         thread::spawn(move || {
             while !engine.stopped.load(Ordering::SeqCst) {
-                if !up(port()) {
+                if !up(engine.port) {
                     engine.start();
                 }
                 thread::sleep(WATCH);
@@ -59,6 +78,7 @@ impl Engine {
         cmd.arg(home.join("server").join("bin").join("dogs.mjs"))
             .arg("serve")
             .current_dir(&home)
+            .env("DOGS_PORT", self.port.to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -81,7 +101,7 @@ impl Engine {
         *self.child.lock().unwrap() = Some(child);
 
         let t0 = Instant::now();
-        while t0.elapsed() < START_TIMEOUT && !self.stopped.load(Ordering::SeqCst) && !up(port()) {
+        while t0.elapsed() < START_TIMEOUT && !self.stopped.load(Ordering::SeqCst) && !up(self.port) {
             // It exited (port taken, bad Node): stop waiting, the watcher retries.
             let exited = match self.child.lock().unwrap().as_mut() {
                 Some(child) => !matches!(child.try_wait(), Ok(None)),
@@ -96,8 +116,41 @@ impl Engine {
     }
 }
 
-fn port() -> u16 {
-    env::var("DOGS_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT)
+/// The data folder every copy of DOGS AI shares (server/src/data-dir.mjs says the same): DOGS_AI_DATA, else
+/// %LOCALAPPDATA%\DOGS AI, ~/Library/Application Support/DOGS AI or $XDG_DATA_HOME/dogs-ai.
+fn data_dir() -> Option<PathBuf> {
+    if let Some(dir) = env::var_os("DOGS_AI_DATA").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    let home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    if cfg!(windows) {
+        return env::var_os("LOCALAPPDATA").map(PathBuf::from).or_else(|| home.map(|h| h.join("AppData").join("Local"))).map(|d| d.join("DOGS AI"));
+    }
+    if cfg!(target_os = "macos") {
+        return home.map(|h| h.join("Library").join("Application Support").join("DOGS AI"));
+    }
+    env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| home.map(|h| h.join(".local").join("share"))).map(|d| d.join("dogs-ai"))
+}
+
+/// The port of the engine that is running, from server.json in the data folder, when it answers there.
+fn running_port() -> Option<u16> {
+    let text = std::fs::read_to_string(data_dir()?.join("server.json")).ok()?;
+    let after = &text[text.find("\"port\"")? + 6..];
+    let digits: String = after.trim_start_matches([':', ' ']).chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok().filter(|p| up(*p))
+}
+
+/// The running engine's port; else DOGS_PORT; else the first free one from DEFAULT_PORT.
+fn pick_port() -> u16 {
+    if let Some(port) = running_port() {
+        return port;
+    }
+    if let Some(port) = env::var("DOGS_PORT").ok().and_then(|p| p.parse().ok()) {
+        return port;
+    }
+    (DEFAULT_PORT..DEFAULT_PORT + PORTS_TRIED)
+        .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
+        .unwrap_or(DEFAULT_PORT)
 }
 
 /// GET /api/health answers 2xx. Plain HTTP over a socket: one request does not need an HTTP client.

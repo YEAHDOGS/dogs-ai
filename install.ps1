@@ -58,7 +58,8 @@ Exec { uv pip install --python $VenvPy -r (Join-Path $ComfyDir 'requirements.txt
 Exec { & $VenvPy -c "import torch; print('    torch', torch.__version__, 'cuda', torch.cuda.is_available())" } 'torch check'
 
 # Point ComfyUI at the FLUX download folder (keeps the HF repo layout, no copying) and at runtime/models/linked,
-# where the dogs server hard-links every model it finds (project models/ folder, every user's HF cache).
+# where the dogs server hard-links every model it finds (the data folder's models/, every user's HF cache).
+# All of it is in the data folder ($Data), which every copy of DOGS AI on this computer shares.
 $fluxFwd = $FluxDir -replace '\\', '/'
 $linkedFwd = (Join-Path $Runtime 'models\linked') -replace '\\', '/'
 @"

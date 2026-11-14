@@ -39,7 +39,7 @@
     </div>
     <label class="flex flex-col gap-1.5 text-xs uppercase tracking-wider text-muted">
       Server URL
-      <input class={INPUT} bind:value={server} placeholder="http://127.0.0.1:8787 (empty = this page's server)" />
+      <input class={INPUT} bind:value={server} placeholder="http://127.0.0.1:8788 (empty = this page's server)" />
     </label>
     <label class="flex flex-col gap-1.5 text-xs uppercase tracking-wider text-muted">
       API key

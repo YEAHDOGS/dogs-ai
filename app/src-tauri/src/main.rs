@@ -30,7 +30,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![save::save_file])
         .setup(move |app| {
             app_engine.spawn();
+            // The page talks to the engine this app found or started (see dogs_server.rs).
+            let server = format!("window.__DOGS_SERVER__ = {:?};", app_engine.url());
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+                .initialization_script(&server)
                 .title("DOGS AI")
                 .inner_size(1000.0, 800.0)
                 .min_inner_size(360.0, 520.0)

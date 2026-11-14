@@ -3,10 +3,25 @@ $ErrorActionPreference = 'Stop'
 
 $Repo     = Split-Path -Parent $PSScriptRoot
 $Stack    = Get-Content (Join-Path $Repo 'stack.json') -Raw | ConvertFrom-Json
-$Runtime  = Join-Path $Repo 'runtime'
+# One data folder per user, shared by every copy of DOGS AI on this computer (server/src/data-dir.mjs):
+# %LOCALAPPDATA%\DOGS AI, or DOGS_AI_DATA. An older copy's runtime/ or outputs/ that has not moved there yet
+# (the dogs server moves it when it next starts) is used where it is.
+$Data = if ($env:DOGS_AI_DATA) { $env:DOGS_AI_DATA }
+        elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'DOGS AI' }
+        elseif ($IsMacOS) { Join-Path $HOME 'Library/Application Support/DOGS AI' }
+        elseif ($env:XDG_DATA_HOME) { Join-Path $env:XDG_DATA_HOME 'dogs-ai' }
+        else { Join-Path $HOME '.local/share/dogs-ai' }
+function Get-DataPlace([string]$Name) {
+  $shared = Join-Path $Data $Name
+  $old = Join-Path $Repo $Name
+  $has = { param($d) (Test-Path $d) -and @(Get-ChildItem -Force $d | Where-Object Name -ne '.gitkeep').Count -gt 0 }
+  if (-not (& $has $shared) -and (& $has $old)) { return $old }
+  return $shared
+}
+$Runtime  = Get-DataPlace 'runtime'
 $ComfyDir = Join-Path $Runtime 'ComfyUI'
 $FluxDir  = Join-Path $Runtime 'models\flux3-klein'
-$Outputs  = Join-Path $Repo 'outputs'
+$Outputs  = Get-DataPlace 'outputs'
 $ComfyUrl = "http://127.0.0.1:$($Stack.comfyui.port)"
 $VenvPy   = Join-Path $ComfyDir '.venv\Scripts\python.exe'
 

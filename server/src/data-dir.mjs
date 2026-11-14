@@ -10,10 +10,12 @@
 //   runtime/        ComfyUI and its Python, linked models, the database (history, chats, characters, prompts)
 //   models/         models dropped in by hand
 //   outputs/        everything generated, and uploads
+//   workflows/      ComfyUI workflows brought for models without a built-in one
 //   settings.json   connections every copy uses (the Ollama address)
-//   server.json     the engine that is running, so every app uses that one instead of starting another
+//   server.json     the engine that is running, so every app uses that one instead of starting another (and,
+//                   for an engine that takes a key, the key: the folder is only this user's)
 //
-// Copies from before kept runtime/, models/ and outputs/ inside their own folder. Those are moved here the first
+// Copies from before kept runtime/, models/, outputs/ and workflows/ inside their own folder. Those are moved here the first
 // time a newer copy starts (a rename: instant on the same drive). A folder that cannot move yet, because the
 // older copy is still running from it or it is on another drive, is used where it is and tried again next start.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -21,7 +23,7 @@ import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
-export const MOVABLE = ["runtime", "models", "outputs"];
+export const MOVABLE = ["runtime", "models", "outputs", "workflows"];
 
 export function defaultDataDir(env = process.env, platform = process.platform, home = os.homedir()) {
   if (platform === "win32") return path.win32.join(env.LOCALAPPDATA || path.win32.join(home, "AppData", "Local"), "DOGS AI");
@@ -88,8 +90,8 @@ export function inUse(copy, list = processes()) {
 }
 
 /**
- * Moves an older copy's runtime/, models/ and outputs/ into the shared folder, each one that has something in it
- * while the shared one does not. Returns where each of the three is to be used from now, and what happened.
+ * Moves an older copy's runtime/, models/, outputs/ and workflows/ into the shared folder, each one that has
+ * something in it while the shared one does not. Returns where each is to be used from now, and what happened.
  */
 export function settle(shared, legacy) {
   const places = Object.fromEntries(MOVABLE.map((name) => [name, path.join(shared, name)]));

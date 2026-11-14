@@ -33,11 +33,14 @@ pub struct Engine {
     stopped: Arc<AtomicBool>,
     /// Where the engine listens: the running one's port, else one picked when the app opened.
     port: u16,
+    /// The running engine's key, when it takes one (Castle's, served to the network): empty otherwise.
+    key: String,
 }
 
 impl Default for Engine {
     fn default() -> Self {
-        Self { child: Arc::default(), stopped: Arc::default(), port: pick_port() }
+        let (port, key) = pick_port();
+        Self { child: Arc::default(), stopped: Arc::default(), port, key }
     }
 }
 
@@ -47,12 +50,17 @@ impl Engine {
         format!("http://127.0.0.1:{}", self.port)
     }
 
+    /// The key the window sends that engine; empty when it takes none.
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
     /// Start the engine if needed, then keep it running for as long as the app is open.
     pub fn spawn(&self) {
         let engine = self.clone();
         thread::spawn(move || {
             while !engine.stopped.load(Ordering::SeqCst) {
-                if !up(engine.port) {
+                if !up(engine.port, &key_for(engine.port)) {
                     engine.start();
                 }
                 thread::sleep(WATCH);
@@ -101,7 +109,7 @@ impl Engine {
         *self.child.lock().unwrap() = Some(child);
 
         let t0 = Instant::now();
-        while t0.elapsed() < START_TIMEOUT && !self.stopped.load(Ordering::SeqCst) && !up(self.port) {
+        while t0.elapsed() < START_TIMEOUT && !self.stopped.load(Ordering::SeqCst) && !up(self.port, "") {
             // It exited (port taken, bad Node): stop waiting, the watcher retries.
             let exited = match self.child.lock().unwrap().as_mut() {
                 Some(child) => !matches!(child.try_wait(), Ok(None)),
@@ -132,36 +140,45 @@ fn data_dir() -> Option<PathBuf> {
     env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| home.map(|h| h.join(".local").join("share"))).map(|d| d.join("dogs-ai"))
 }
 
-/// The port of the engine that is running, from server.json in the data folder, when it answers there.
-fn running_port() -> Option<u16> {
+/// The engine recorded in server.json in the data folder: its port, and its key (empty when it takes none).
+fn recorded() -> Option<(u16, String)> {
     let text = std::fs::read_to_string(data_dir()?.join("server.json")).ok()?;
-    let after = &text[text.find("\"port\"")? + 6..];
-    let digits: String = after.trim_start_matches([':', ' ']).chars().take_while(|c| c.is_ascii_digit()).collect();
-    digits.parse().ok().filter(|p| up(*p))
+    let info: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let port = u16::try_from(info.get("port")?.as_u64()?).ok()?;
+    let key = info.get("key").and_then(|k| k.as_str()).unwrap_or_default().to_string();
+    Some((port, key))
 }
 
-/// The running engine's port; else DOGS_PORT; else the first free one from DEFAULT_PORT.
-fn pick_port() -> u16 {
-    if let Some(port) = running_port() {
-        return port;
+/// The key of the engine on `port`, when that is the recorded one.
+fn key_for(port: u16) -> String {
+    recorded().filter(|(p, _)| *p == port).map(|(_, key)| key).unwrap_or_default()
+}
+
+/// The running engine's port and key; else DOGS_PORT; else the first free port from DEFAULT_PORT.
+fn pick_port() -> (u16, String) {
+    if let Some(found) = recorded().filter(|(port, key)| up(*port, key)) {
+        return found;
     }
     if let Some(port) = env::var("DOGS_PORT").ok().and_then(|p| p.parse().ok()) {
-        return port;
+        return (port, String::new());
     }
-    (DEFAULT_PORT..DEFAULT_PORT + PORTS_TRIED)
+    let port = (DEFAULT_PORT..DEFAULT_PORT + PORTS_TRIED)
         .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
-        .unwrap_or(DEFAULT_PORT)
+        .unwrap_or(DEFAULT_PORT);
+    (port, String::new())
 }
 
-/// GET /api/health answers 2xx. Plain HTTP over a socket: one request does not need an HTTP client.
-fn up(port: u16) -> bool {
+/// GET /api/health answers 2xx (sent with the engine's key, when it takes one). Plain HTTP over a socket: one
+/// request does not need an HTTP client.
+fn up(port: u16, key: &str) -> bool {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let Ok(mut s) = TcpStream::connect_timeout(&addr, HEALTH_TIMEOUT) else {
         return false;
     };
     let _ = s.set_read_timeout(Some(HEALTH_TIMEOUT));
     let _ = s.set_write_timeout(Some(HEALTH_TIMEOUT));
-    let req = format!("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    let auth = if key.is_empty() { String::new() } else { format!("Authorization: Bearer {key}\r\n") };
+    let req = format!("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{auth}Connection: close\r\n\r\n");
     if s.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -244,5 +261,41 @@ mod kill_with_app {
         if job != 0 {
             unsafe { AssignProcessToJobObject(job as _, child.as_raw_handle() as _) };
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+
+    /// An engine that takes a key is found through server.json, and asked with that key.
+    #[test]
+    fn a_keyed_engine_is_found_and_asked_with_its_key() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let (mut line, mut keyed) = (String::new(), false);
+                while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                    keyed |= line.trim().eq_ignore_ascii_case("authorization: bearer k123");
+                    line.clear();
+                }
+                let status = if keyed { "200 OK" } else { "401 Unauthorized" };
+                let _ = write!(&stream, "HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n");
+            }
+        });
+        let dir = env::temp_dir().join(format!("dogs-app-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("server.json"), format!("{{\"url\":\"http://127.0.0.1:{port}\",\"port\":{port},\"keyed\":true,\"key\":\"k123\"}}")).unwrap();
+        env::set_var("DOGS_AI_DATA", &dir);
+        assert_eq!(recorded(), Some((port, "k123".to_string())));
+        assert_eq!(key_for(port), "k123");
+        assert_eq!(key_for(port.wrapping_add(1)), "", "another port's engine is not given the key");
+        assert!(!up(port, ""), "without the key it refuses");
+        assert!(up(port, "k123"));
+        assert_eq!(pick_port(), (port, "k123".to_string()));
+        env::remove_var("DOGS_AI_DATA");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

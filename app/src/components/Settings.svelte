@@ -10,7 +10,7 @@
   let { onClose } = $props()
 
   let server = $state(settings.server)
-  let key = $state(settings.key)
+  let key = $state(settings.savedKey)
   const INPUT = 'w-full well rounded-lg px-3 py-2 text-sm outline-none'
 
   function save(/** @type {SubmitEvent} */ e) {

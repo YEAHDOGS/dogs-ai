@@ -12,11 +12,17 @@ const DEFAULT_SERVER = location.protocol.startsWith('http') && location.hostname
 const read = (k) => { try { return localStorage.getItem(k) } catch { return null } }
 const write = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k) } catch {} }
 
+// The key the shell found for that engine (one started for the network takes a key, and records it where only this
+// user can read it). Sent only to that engine, never to a server typed into Settings.
+const DEFAULT_KEY = globalThis.__DOGS_KEY__ || ''
+
 export const settings = {
   get server() { return (read(STORAGE_URL) ?? DEFAULT_SERVER).replace(/\/$/, '') },
   set server(v) { write(STORAGE_URL, v.trim()) },
-  get key() { return read(STORAGE_KEY) || '' },
+  get key() { return read(STORAGE_KEY) || (this.server === DEFAULT_SERVER.replace(/\/$/, '') ? DEFAULT_KEY : '') },
   set key(v) { write(STORAGE_KEY, v.trim()) },
+  /** The key typed into Settings, without the one the shell found. */
+  get savedKey() { return read(STORAGE_KEY) || '' },
 }
 
 /** Absolute URL for a server path, with the key appended for media elements that cannot send headers. */

@@ -24,8 +24,12 @@ test("an older copy's folders move into the shared one, ComfyUI's paths with the
   mkdirSync(path.join(old, "outputs", "generated"), { recursive: true });
   mkdirSync(path.join(old, "models"), { recursive: true });
   writeFileSync(path.join(old, "models", ".gitkeep"), "");
+  mkdirSync(path.join(old, "workflows"), { recursive: true });
+  writeFileSync(path.join(old, "workflows", "mine.json"), "{}");
 
   const { places, notes } = settle(shared, [old]);
+  assert.equal(places.workflows, path.join(shared, "workflows"));
+  assert.ok(existsSync(path.join(shared, "workflows", "mine.json")));
   assert.equal(places.runtime, path.join(shared, "runtime"));
   assert.equal(readFileSync(path.join(shared, "runtime", "dogs.db"), "utf8"), "history");
   assert.match(readFileSync(path.join(shared, "runtime", "extra_model_paths.yaml"), "utf8"), new RegExp(path.join(shared, "runtime").replace(/\\/g, "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -33,7 +37,7 @@ test("an older copy's folders move into the shared one, ComfyUI's paths with the
   assert.ok(!existsSync(path.join(old, "runtime")));
   // A models/ with only .gitkeep in it has nothing to move.
   assert.ok(hasContent(path.join(old, "models")) === false && existsSync(path.join(old, "models")));
-  assert.equal(notes.filter((n) => n.startsWith("moved")).length, 2);
+  assert.equal(notes.filter((n) => n.startsWith("moved")).length, 3);
 });
 
 test("a shared folder that already has something is kept, and the older one left alone", () => {

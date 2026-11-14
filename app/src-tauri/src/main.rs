@@ -31,7 +31,7 @@ fn main() {
         .setup(move |app| {
             app_engine.spawn();
             // The page talks to the engine this app found or started (see dogs_server.rs).
-            let server = format!("window.__DOGS_SERVER__ = {:?};", app_engine.url());
+            let server = format!("window.__DOGS_SERVER__ = {:?}; window.__DOGS_KEY__ = {:?};", app_engine.url(), app_engine.key());
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .initialization_script(&server)
                 .title("DOGS AI")

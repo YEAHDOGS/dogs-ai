@@ -4,7 +4,7 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
-import { API_PORT, API_KEY, OUTPUTS, REPO, MODELS_DIR, DATA, RUNTIME, OLLAMA_URL, readServer } from "../src/config.mjs";
+import { API_PORT, API_KEY, OUTPUTS, REPO, MODELS_DIR, DATA, RUNTIME, OLLAMA_URL, readServer, serverKey } from "../src/config.mjs";
 
 const HELP = `dogs - local image / video / audio generation (ComfyUI)
 
@@ -91,7 +91,8 @@ function flags(args) {
 
 // The engine that is running, whichever app started it (DATA/server.json), else the usual address.
 const API = readServer()?.url || `http://127.0.0.1:${API_PORT}`;
-const headers = { "content-type": "application/json", ...(API_KEY ? { authorization: `Bearer ${API_KEY}` } : {}) };
+const KEY = serverKey();
+const headers = { "content-type": "application/json", ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) };
 async function apiUp() {
   try { return (await fetch(`${API}/api/health`, { headers, signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
 }

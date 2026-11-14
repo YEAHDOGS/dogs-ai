@@ -178,7 +178,7 @@ on small GPUs, start at 512×512 and CFG 1 to reduce generation time.
 ### Any other model: bring a workflow
 
 Build the workflow in the ComfyUI web UI, export it with **Export (API)**, and save it as
-`workflows/<name>.json`. Add a `"dogs"` key and use placeholders where the prompt and settings go:
+`workflows/<name>.json` in the [data folder](#data). Add a `"dogs"` key and use placeholders where the prompt and settings go:
 
 ```json
 {
@@ -241,16 +241,19 @@ One folder per user holds all of it, shared by every copy of DOGS AI on this com
 | Linux | `$XDG_DATA_HOME/dogs-ai` (`~/.local/share/dogs-ai`) |
 
 `DOGS_AI_DATA` puts it anywhere else; `dogs where` prints it. Inside: `runtime/` (ComfyUI and its Python, linked
-models, the database), `models/`, `outputs/`, and two small files:
+models, the database), `models/`, `outputs/`, `workflows/` (your own ComfyUI workflows), and two small files:
 
 - `settings.json`: connections every copy uses. Today that is the Ollama address, so chat uses the same Ollama
   (and the same models) everywhere. Change it with `POST /api/connections {"ollama": "http://host:11434"}`, or
   start the engine with `DOGS_AI_OLLAMA` set (Castle does this with the address its box uses). `OLLAMA_URL`
   still overrides it for one process only.
 - `server.json`: the engine that is running, written while it listens. The desktop app, the CLI and Castle use
-  that engine instead of starting another, so there is one engine (and one ComfyUI) per computer.
+  that engine instead of starting another, so there is one engine (and one ComfyUI) per computer. An engine
+  that takes a key (served to the network, as Castle's box does when other devices reach it) records its key
+  here too, which only this user can read, so the apps on this computer can still use it. One served on a
+  network address also listens on `127.0.0.1`, with the same key.
 
-Copies from before this kept `runtime/`, `models/` and `outputs/` inside their own folder. The first time a newer
+Copies from before this kept `runtime/`, `models/`, `outputs/` and `workflows/` inside their own folder. The first time a newer
 copy starts they are moved into the data folder (on the same drive that is a rename, so it is instant), and
 ComfyUI's `extra_model_paths.yaml` is pointed at the new place. While the older copy is still running from them
 they are used where they are, and moved on a later start. Castle passes its own older copies in `DOGS_AI_LEGACY`.
@@ -347,9 +350,9 @@ frees VRAM afterwards (`VRAM_HANDOFF=0` turns that off); `dogs` does the same.
 install.ps1, stack.json     installer and pinned versions
 server/                     dogs CLI (bin/dogs.mjs) and API (src/): scan, families, comfy, jobs, db, llm, hub, api
 app/                        DOGS AI app: src/ (Svelte), src-tauri/ (Tauri desktop shell, Rust)
-workflows/                  your own ComfyUI API-format workflows (optional)
 mcp/comfy-mcp, opencode/, ollama/, scripts/   coding agent setup and PowerShell helpers
 ```
 
 And in the [data folder](#data): `models/` (drop models here), `runtime/` (ComfyUI, linked models, the
-database) and `outputs/` (`outputs/generated/` has every generated file).
+database), `outputs/` (`outputs/generated/` has every generated file) and `workflows/` (your own ComfyUI
+API-format workflows).

@@ -325,7 +325,7 @@ export function serve({ host = API_HOST, port = API_PORT } = {}) {
     throw new Error(`refusing to listen on ${host} without DOGS_API_KEY: anyone on the network could use the GPU and delete files. ` +
       `Set DOGS_API_KEY to a long random string first.`);
   }
-  const server = http.createServer(async (req, res) => {
+  const handle = async (req, res) => {
     if (!hostAllowed(req)) return send(res, 403, { error: "unexpected Host header (set DOGS_API_KEY to serve other hosts)" });
     if (!originAllowed(req)) return send(res, 403, { error: `origin ${req.headers.origin} is not allowed (add it to DOGS_ORIGINS)` });
     if (req.headers.origin) {
@@ -348,17 +348,33 @@ export function serve({ host = API_HOST, port = API_PORT } = {}) {
       if (!res.headersSent) send(res, e.status || 500, { error: String(e.message || e) });
       else res.end();
     }
-  });
-  return new Promise((resolve) => server.listen(port, host, () => {
-    // Every copy of DOGS AI on this computer finds this engine through DATA/server.json, and uses it.
+  };
+  const server = http.createServer(handle);
+  return new Promise((resolve) => server.listen(port, host, async () => {
     const a = server.address();
-    recordServer({ url: `http://${["0.0.0.0", "::"].includes(a.address) ? "127.0.0.1" : a.address}:${a.port}`, port: a.port, host: a.address, keyed: !!API_KEY });
+    // Served on one network address (Castle's box reached from other devices does this), the engine listens on
+    // this computer's own address too, so the desktop app and the CLI here can use it. The key still applies.
+    const wildcard = ["0.0.0.0", "::"].includes(a.address);
+    const local = wildcard || ["127.0.0.1", "::1"].includes(a.address) ? null : await listenLocally(handle, a.port);
+    if (local) server.on("close", () => local.close());
+    // Every copy of DOGS AI on this computer finds this engine through DATA/server.json, and uses it.
+    const here = wildcard || local ? "127.0.0.1" : a.address;
+    recordServer({ url: `http://${here}:${a.port}`, port: a.port, host: a.address, keyed: !!API_KEY, ...(API_KEY ? { key: API_KEY } : {}) });
     process.on("exit", forgetServer);
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => process.exit(0));
     server.on("close", forgetServer);
     warmUp().catch((e) => console.error("[dogs]", e.message));
     resolve(server);
   }));
+}
+
+/** A second listener on 127.0.0.1, or null when that port is taken there. */
+function listenLocally(handle, port) {
+  return new Promise((resolve) => {
+    const local = http.createServer(handle);
+    local.once("error", () => resolve(null));
+    local.listen(port, "127.0.0.1", () => resolve(local));
+  });
 }
 
 // Bring up what chat and generation need as soon as the engine starts, so the first request neither waits on

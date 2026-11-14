@@ -1,5 +1,5 @@
 // Paths and settings shared by the CLI and the API server. Everything comes from stack.json plus env overrides.
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -28,7 +28,8 @@ export const EXTRA_PATHS_YAML = path.join(RUNTIME, "extra_model_paths.yaml");
 export const OUTPUTS = path.resolve(env.DOGS_AI_OUTPUTS || settled.places.outputs);
 // Every generated file lands in outputs/generated/<kind>/; outputs/ also holds uploads (inputs/, characters/).
 export const GENERATED = "generated";
-export const WORKFLOWS_DIR = path.join(REPO, "workflows");
+// ComfyUI workflows (API format) for models without a built-in one.
+export const WORKFLOWS_DIR = settled.places.workflows;
 export const COMFY_URL = (env.COMFY_URL || `http://127.0.0.1:${STACK.comfyui.port}`).replace(/\/$/, "");
 export const VRAM_HANDOFF = env.VRAM_HANDOFF !== "0";
 
@@ -70,15 +71,22 @@ const SERVER_FILE = path.join(DATA, "server.json");
 export function readServer() {
   try { return JSON.parse(readFileSync(SERVER_FILE, "utf8")); } catch { return null; }
 }
+// An engine that takes a key records it too, so the other copies on this computer can use that engine: the folder
+// belongs to this user alone (and the file is made private to them where the system has file modes).
 export function recordServer(info) {
   mkdirSync(DATA, { recursive: true });
-  writeFileSync(SERVER_FILE, JSON.stringify({ ...info, pid: process.pid, started: new Date().toISOString() }, null, 2) + "\n");
+  writeFileSync(SERVER_FILE, JSON.stringify({ ...info, pid: process.pid, started: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 });
+  try { chmodSync(SERVER_FILE, 0o600); } catch {}
 }
 export function forgetServer() {
   if (readServer()?.pid === process.pid) rmSync(SERVER_FILE, { force: true });
 }
 // Required as "Authorization: Bearer <key>" when set. Always set one before binding to anything but localhost.
 export const API_KEY = env.DOGS_API_KEY || "";
+/** The key a client on this computer sends: DOGS_API_KEY, else the one the running engine recorded. */
+export function serverKey() {
+  return API_KEY || readServer()?.key || "";
+}
 
 // Every Hugging Face hub cache on this machine: env overrides, then each user profile (models can be
 // downloaded as any user, including an admin account).

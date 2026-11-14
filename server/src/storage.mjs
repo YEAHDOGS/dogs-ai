@@ -18,7 +18,7 @@ const userOf = (p) => p.split(path.sep)[p.split(path.sep).indexOf("Users") + 1] 
 function places() {
   const list = [
     { id: "outputs", label: "Generated media", kind: "media", dir: OUTPUTS, about: "Everything you've generated, plus uploads for characters and start frames." },
-    { id: "project-models", label: "Project models folder", kind: "models", dir: MODELS_DIR, about: "Models you copied into the project. Hugging Face folders here may just be links into a cache." },
+    { id: "project-models", label: "Models folder", kind: "models", dir: MODELS_DIR, about: "Models you dropped in by hand, shared by every copy of DOGS AI on this computer. Hugging Face folders here may just be links into a cache." },
     { id: "linked", label: "ComfyUI model files", kind: "models", dir: LINKED_DIR, about: "Models used by ComfyUI. Shared links use no extra space, but files remain here when their originals are deleted. Manage them in Models; this is not a disposable cache." },
     ...hubRoots().map((dir) => ({ id: `hf-${userOf(dir) || "env"}`, label: `Hugging Face cache (${userOf(dir) || "HF_HOME"})`, kind: "models", dir, about: "Models downloaded with the Hugging Face CLI by this user." })),
     { id: "hf-xet", label: "Hugging Face download cache", kind: "cache", dir: path.join(home, ".cache", "huggingface", "xet"), clear: true, about: "Chunks kept to speed up re-downloads. Safe to clear." },

@@ -134,7 +134,7 @@
   {#if store.catalog.unrecognized.length}
     <details class="rounded-xl bg-card/40 border border-white/5 p-3">
       <summary class="cursor-pointer font-semibold">{store.catalog.unrecognized.length} unrecognized weight files</summary>
-      <p class="mt-2 text-xs text-neutral-500">No built-in workflow uses these. Export an API-format workflow from ComfyUI into <code>workflows/</code> to use them.</p>
+      <p class="mt-2 text-xs text-neutral-500">No built-in workflow uses these. Export an API-format workflow from ComfyUI into the data folder's <code>workflows/</code> to use them.</p>
       <ul class="mt-2 text-xs text-neutral-400">
         {#each store.catalog.unrecognized as f (f.id)}<li class="truncate">{f.name} · {size(f.size)} · {f.location}</li>{/each}
       </ul>

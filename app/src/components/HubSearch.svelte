@@ -181,7 +181,7 @@
               {#if files[r.repo].chat}
                 <p class="text-neutral-600 mt-1 flex items-center gap-1"><MessageSquare size={11} class="shrink-0" /> Text model: added to Ollama, then pick it in Chat. Smaller quants (Q4) need less memory; Q8 is closest to the original.</p>
               {:else}
-                <p class="text-neutral-400 mt-1">{#if r.family}Downloading a supported model also installs its required companion files. Existing downloads are reused.{:else}Files without a built-in workflow show under "unrecognized"; add a ComfyUI workflow in <code>workflows/</code> to use them.{/if}</p>
+                <p class="text-neutral-400 mt-1">{#if r.family}Downloading a supported model also installs its required companion files. Existing downloads are reused.{:else}Files without a built-in workflow show under "unrecognized"; add a ComfyUI workflow in the data folder's <code>workflows/</code> to use them.{/if}</p>
               {/if}
             {/if}
           </div>
